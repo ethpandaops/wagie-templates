@@ -1,4 +1,4 @@
-name: wagie/devnet-notes
+name: ethpandaops/devnet-notes
 version: "1.0"
 description: >-
   Use when a workflow needs the canonical operator notes for an Ethereum devnet; resolves the expected notes URL, extracts the most relevant network setup guidance, and summarizes assumptions or gaps.

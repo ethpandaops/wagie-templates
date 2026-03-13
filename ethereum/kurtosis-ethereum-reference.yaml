@@ -1,4 +1,4 @@
-name: wagie/kurtosis-ethereum-reference
+name: ethpandaops/kurtosis-ethereum-reference
 version: "1.0"
 description: >-
   Use when a workflow needs targeted ethereum-package reference material; retrieves the specific config, client, service, fork, or example information needed for a Kurtosis task.

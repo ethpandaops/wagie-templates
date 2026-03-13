@@ -1,4 +1,4 @@
-name: wagie/research-findings
+name: ethpandaops/research-findings
 version: "1.0"
 description: >-
   Use when a topic needs a typed batch of research findings; returns incremental findings focused on breadth first and then explicit gap closure.

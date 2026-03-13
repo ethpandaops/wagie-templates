@@ -1,4 +1,4 @@
-name: wagie/desloppify-review-pipeline
+name: ethpandaops/desloppify-review-pipeline
 version: "1.0"
 description: >-
   Use when subjective dimensions need review; delegate to desloppify's native
@@ -64,7 +64,7 @@ tasks:
         state_json: { type: string }
   status:
     needs: [review]
-    uses: wagie/desloppify-status@1
+    uses: ethpandaops/desloppify-status@1
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"

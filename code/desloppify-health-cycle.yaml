@@ -1,4 +1,4 @@
-name: wagie/desloppify-health-cycle
+name: ethpandaops/desloppify-health-cycle
 version: "1.0"
 description: >-
   Use for an end-to-end desloppify improvement pass; scan and score the codebase,
@@ -52,7 +52,7 @@ inputs:
     description: "Maximum items to include in triage plan"
 tasks:
   initial_scan:
-    uses: wagie/desloppify-scan-and-score@1
+    uses: ethpandaops/desloppify-scan-and-score@1
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
@@ -69,7 +69,7 @@ tasks:
   review:
     needs: [initial_scan]
     if: "${{ inputs.skip_review != true }}"
-    uses: wagie/desloppify-review-pipeline@1
+    uses: ethpandaops/desloppify-review-pipeline@1
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
@@ -83,7 +83,7 @@ tasks:
       state_json: state_json
   triage:
     needs: [initial_scan, review]
-    uses: wagie/desloppify-triage@1
+    uses: ethpandaops/desloppify-triage@1
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
@@ -96,7 +96,7 @@ tasks:
       state_json: state_json
   fix:
     needs: [triage]
-    uses: wagie/desloppify-fix-loop@1
+    uses: ethpandaops/desloppify-fix-loop@1
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
@@ -109,7 +109,7 @@ tasks:
       state_json: state_json
   rescan:
     needs: [fix]
-    uses: wagie/desloppify-scan-and-score@1
+    uses: ethpandaops/desloppify-scan-and-score@1
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
@@ -123,7 +123,7 @@ tasks:
       open_count: open_count
   target_check_final:
     needs: [rescan]
-    uses: wagie/score-threshold-check@1
+    uses: ethpandaops/score-threshold-check@1
     inputs:
       score: "${{ tasks.rescan.outputs.overall_score }}"
       threshold: "${{ inputs.target_score }}"

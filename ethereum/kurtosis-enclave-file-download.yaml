@@ -1,4 +1,4 @@
-name: wagie/kurtosis-enclave-file-download
+name: ethpandaops/kurtosis-enclave-file-download
 version: "1.0"
 description: >-
   Use when a workflow needs a Kurtosis enclave file locally; downloads a named file such as genesis data or network configs.

@@ -1,4 +1,4 @@
-name: wagie/kurtosis-ethereum-network-lifecycle
+name: ethpandaops/kurtosis-ethereum-network-lifecycle
 version: "1.0"
 description: >-
   Use when a workflow needs a single-session Kurtosis Ethereum network lifecycle; designs config, launches the enclave, inspects it, optionally validates it over an observation window, summarizes the result, and cleans up when requested.
@@ -90,7 +90,7 @@ inputs:
     description: Whether to always remove the enclave in finally cleanup
 tasks:
   design_config:
-    uses: wagie/kurtosis-ethereum-config@1
+    uses: ethpandaops/kurtosis-ethereum-config@1
     inputs:
       goal: ${{ inputs.goal }}
       constraints: "${{ has(inputs.constraints) ? inputs.constraints : '' }}"
@@ -157,7 +157,7 @@ tasks:
           description: Local path to the generated args file
   inspect_enclave:
     needs: [design_config, launch_network]
-    uses: wagie/kurtosis-enclave-context@1
+    uses: ethpandaops/kurtosis-enclave-context@1
     inputs:
       enclave_name: ${{ inputs.enclave_name }}
       focus: post-launch
@@ -308,7 +308,7 @@ tasks:
 finally:
   cleanup_enclave:
     if: ${{ inputs.auto_cleanup == true && inputs.launch == true }}
-    uses: wagie/kurtosis-enclave-cleanup@1
+    uses: ethpandaops/kurtosis-enclave-cleanup@1
     inputs:
       enclave_name: ${{ inputs.enclave_name }}
       force: true

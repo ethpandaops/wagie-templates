@@ -1,4 +1,4 @@
-name: wagie/devnet-issue-to-kurtosis-repro
+name: ethpandaops/devnet-issue-to-kurtosis-repro
 version: "1.0"
 description: >-
   Use when a workflow needs to investigate an active devnet issue and then reproduce it in Kurtosis using a config derived from that devnet profile and the implicated client or image hints.
@@ -77,7 +77,7 @@ inputs:
     description: Whether to remove the Kurtosis enclave after reproduction
 tasks:
   debug_devnet:
-    uses: wagie/devnet-debug@1
+    uses: ethpandaops/devnet-debug@1
     inputs:
       network: ${{ inputs.devnet_name }}
       problem_statement: ${{ inputs.problem_statement }}
@@ -147,7 +147,7 @@ tasks:
           description: Likely affected scope to preserve in the repro
   launch_in_kurtosis:
     needs: [derive_repro_plan]
-    uses: wagie/kurtosis-ethereum-network-lifecycle@1
+    uses: ethpandaops/kurtosis-ethereum-network-lifecycle@1
     session: true
     inputs:
       goal: ${{ tasks.derive_repro_plan.outputs.repro_goal }}
@@ -231,7 +231,7 @@ tasks:
 finally:
   cleanup_enclave:
     if: ${{ inputs.auto_cleanup == true }}
-    uses: wagie/kurtosis-enclave-cleanup@1
+    uses: ethpandaops/kurtosis-enclave-cleanup@1
     inputs:
       enclave_name: ${{ inputs.enclave_name }}
       force: true

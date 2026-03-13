@@ -1,4 +1,4 @@
-name: wagie/desloppify-scan
+name: ethpandaops/desloppify-scan
 version: "1.0"
 description: >-
   Use when running static analysis on a codebase with desloppify; executes language-specific

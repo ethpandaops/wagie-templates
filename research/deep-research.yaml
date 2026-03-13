@@ -1,4 +1,4 @@
-name: wagie/deep-research
+name: ethpandaops/deep-research
 version: "1.0"
 description: >-
   Use when a topic requires iterative depth-building; accumulates typed finding batches, assesses coverage, and stops when explicit sufficiency is reached.
@@ -35,7 +35,7 @@ tasks:
       gaps: "${{ loop.gaps }}"
     tasks:
       investigate:
-        uses: wagie/research-findings@1
+        uses: ethpandaops/research-findings@1
         inputs:
           topic: "${{ inputs.topic }}"
           previous_findings: "${{ inputs.previous_findings }}"
@@ -77,7 +77,7 @@ tasks:
               description: Accumulated research findings across iterations
       assess:
         needs: [accumulate]
-        uses: wagie/research-coverage-assess@1
+        uses: ethpandaops/research-coverage-assess@1
         inputs:
           topic: "${{ inputs.topic }}"
           depth: "${{ inputs.depth }}"

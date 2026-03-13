@@ -1,4 +1,4 @@
-name: wagie/desloppify-fix-loop
+name: ethpandaops/desloppify-fix-loop
 version: "1.0"
 description: >-
   Use when draining the planned desloppify queue; loop through `next`, apply one fix,
@@ -41,7 +41,7 @@ tasks:
       prev_fix_log: "${{ loop.fix_log }}"
     tasks:
       get_next:
-        uses: wagie/desloppify-next@1
+        uses: ethpandaops/desloppify-next@1
         inputs:
           repo: "${{ inputs.repo }}"
           branch_name: "${{ inputs.branch_name }}"
@@ -53,7 +53,7 @@ tasks:
       apply_fix:
         needs: [get_next]
         if: "${{ tasks.get_next.outputs.queue_empty == false }}"
-        uses: wagie/desloppify-fix-apply@1
+        uses: ethpandaops/desloppify-fix-apply@1
         inputs:
           repo: "${{ inputs.repo }}"
           branch_name: "${{ inputs.branch_name }}"
@@ -66,7 +66,7 @@ tasks:
       mark_resolved:
         needs: [get_next, apply_fix]
         if: "${{ has(tasks.apply_fix.outputs.fixed) && tasks.apply_fix.outputs.fixed == true }}"
-        uses: wagie/desloppify-resolve@1
+        uses: ethpandaops/desloppify-resolve@1
         inputs:
           repo: "${{ inputs.repo }}"
           branch_name: "${{ inputs.branch_name }}"

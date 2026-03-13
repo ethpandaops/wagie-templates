@@ -1,4 +1,4 @@
-name: wagie/kurtosis-ethereum-config
+name: ethpandaops/kurtosis-ethereum-config
 version: "1.0"
 description: >-
   Use when a workflow needs an ethereum-package configuration; design a sensible minimal
@@ -74,7 +74,7 @@ inputs:
 tasks:
   replicate_devnet_config:
     if: ${{ inputs.config_mode == 'devnet-profile' }}
-    uses: wagie/kurtosis-ethereum-devnet-config@1
+    uses: ethpandaops/kurtosis-ethereum-devnet-config@1
     inputs:
       devnet_name: "${{ has(inputs.devnet_name) ? inputs.devnet_name : '' }}"
       goal: "${{ has(inputs.goal) ? inputs.goal : '' }}"

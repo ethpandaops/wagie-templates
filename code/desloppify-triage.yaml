@@ -1,4 +1,4 @@
-name: wagie/desloppify-triage
+name: ethpandaops/desloppify-triage
 version: "1.0"
 description: >-
   Use when review findings need a concrete execution order; delegate to desloppify's
@@ -66,7 +66,7 @@ tasks:
   queue_preview:
     needs: [run_triage]
     if: "${{ tasks.run_triage.outputs.triage_completed == true && tasks.run_triage.outputs.total_planned > 0 }}"
-    uses: wagie/desloppify-next@1
+    uses: ethpandaops/desloppify-next@1
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
