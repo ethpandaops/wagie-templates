@@ -50,18 +50,43 @@ tasks:
 
       Use the `panda` binary as the primary tool surface for this task.
 
+      This task supports two deployment modes:
+      - **Remote** (default): devnets accessible via ethpandaops infrastructure (Dora, Loki with ethpandaops instance, ethnode).
+      - **Local**: Kurtosis-launched devnets on the local machine with direct service access.
+
+      Detect local mode when the input network looks like a Kurtosis enclave name, the user mentions Kurtosis, or the network cannot be found in remote datasources but `kurtosis enclave ls` shows a matching enclave.
+
+      ## Remote mode
+
       Use the best available sources from the MCP environment:
       - network resources such as networks://active, networks://all, and networks://{name}
       - the resolved devnet notes when available
       - Dora network listing when available
-      - Loki label discovery when available
+      - Loki label discovery when available (the standard Loki instance is "ethpandaops"; if it does not exist, discover the correct instance name)
       - ethnode availability signals and examples when available
 
-      Required behavior:
-      1. Resolve the requested network. If the input looks like a devnet group, identify the most relevant concrete network or explain the ambiguity clearly.
-      2. Determine whether Dora, Loki, and ethnode appear available for this network.
-      3. Discover likely node instances when possible.
-      4. Normalize the active investigation timeframe. Preserve the user-provided timeframe when specific; otherwise default to a recent operational window.
+      Remote instance discovery: use Loki label discovery with these standard labels: `testnet` (network name), `instance` (node identity), `ethereum_cl` (CL client type), `ethereum_el` (EL client type). Query the `instance` label filtered by the target network's `testnet` label. Instance names follow `<cl_type>-<el_type>-<instance_number>` (e.g. `lighthouse-geth-1`). These label names are the standard convention but may differ; if queries return errors or empty results, discover the actual label names dynamically.
+
+      Set `data_profile.mode = "remote"`, `data_profile.loki_schema = "ethpandaops"`, `data_profile.has_direct_node_access = false`.
+
+      ## Local Kurtosis mode
+
+      Discovery steps:
+      1. Run `kurtosis enclave inspect <enclave>` to list all services, ports, and status.
+      2. Identify CL services (`cl-*`), EL services (`el-*`), and VC services (`vc-*`). Naming convention: `cl-{index}-{cl_type}-{el_type}` and `el-{index}-{el_type}-{cl_type}` (e.g. `cl-1-teku-geth`, `el-1-geth-teku`).
+      3. Check for Dora: look for a `dora` service in the enclave. If present, note its HTTP port and set `has_dora = true`.
+      4. Check for Loki: test `curl -s http://localhost:3100/ready`. Kurtosis runs Loki on port 3100 when enabled. If it responds, set `has_loki = true`.
+      5. Any service not in RUNNING state is itself a finding — include it in the summary.
+      6. Local devnets never have ClickHouse or xatu — do not attempt to use them.
+
+      Set `data_profile.mode = "local"`, `data_profile.loki_schema = "kurtosis"`, `data_profile.has_direct_node_access = true`, `data_profile.has_ethnode = false`.
+
+      ## Common behavior (both modes)
+
+      1. Resolve the requested network. If it cannot be found in any datasource (remote or local), stop and report that the network does not exist.
+      2. Determine whether Dora and Loki appear available.
+      3. Discover node instances using the mode-appropriate method.
+      4. Normalize the active investigation timeframe. Preserve the user-provided timeframe when specific; otherwise default to a recent operational window. Downstream tasks may override this timeframe if they discover conditions that warrant it (e.g. a network split with a specific divergence point).
       5. Incorporate any high-signal notes context that affects client readiness, expected flags, or likely topology.
       6. Summarize what evidence surfaces are available and what the next debugging step should rely on.
     inputs:
@@ -102,16 +127,25 @@ tasks:
         data_profile:
           type: object
           properties:
+            mode:
+              type: string
+              enum: [local, remote]
+              description: Deployment mode — local Kurtosis enclave or remote ethpandaops devnet
             has_dora:
               type: boolean
             has_loki:
               type: boolean
             has_ethnode:
               type: boolean
-            investigation_mode:
+            has_direct_node_access:
+              type: boolean
+              description: Whether CL/EL nodes are directly queryable via localhost ports (true for local Kurtosis)
+            loki_schema:
               type: string
-          required: [has_dora, has_loki, has_ethnode, investigation_mode]
-          description: Available debugging surfaces and recommended mode
+              enum: [ethpandaops, kurtosis]
+              description: Which Loki label/field conventions to use for log queries
+          required: [mode, has_dora, has_loki, has_ethnode, has_direct_node_access, loki_schema]
+          description: Available debugging surfaces and deployment mode
         summary:
           type: string
           description: Concise debugging-context summary

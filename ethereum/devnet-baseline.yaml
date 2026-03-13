@@ -45,15 +45,21 @@ inputs:
     schema:
       type: object
       properties:
+        mode:
+          type: string
+          enum: [local, remote]
         has_dora:
           type: boolean
         has_loki:
           type: boolean
         has_ethnode:
           type: boolean
-        investigation_mode:
+        has_direct_node_access:
+          type: boolean
+        loki_schema:
           type: string
-      required: [has_dora, has_loki, has_ethnode, investigation_mode]
+          enum: [ethpandaops, kurtosis]
+      required: [mode, has_dora, has_loki, has_ethnode, has_direct_node_access, loki_schema]
   context_summary:
     type: string
     description: Normalized context summary from intake
@@ -79,11 +85,25 @@ tasks:
       Use the `panda` binary as the primary tool surface for this task.
 
       Priorities:
-      - If Dora is available, use it to determine fork status, finality status, recent participation health, missed proposers, and likely offline nodes.
-      - If Dora is unavailable but ethnode is available, use direct node RPC to estimate head slots, finality checkpoints, and sync status across instances.
+      - If Dora is available, collect in a single pass: network overview (current slot, epoch, validator count), fork/split status, epoch-level participation, missed proposers (~300 slots/hour lookback), and offline attesters. Note: Dora's `current_slot` is `epoch × 32` (the epoch's first slot), not the actual head slot — do not confuse these.
+      - Head epoch caveat: the head epoch is still in progress and will show artificially low participation. Always start analysis from head epoch - 1.
+      - Network split override: if Dora shows multiple forks, that overrides the active timeframe. You MUST identify the divergence slot/epoch where the split occurred and refocus the investigation around that point.
+      - If Dora is unavailable but nodes are queryable (ethnode for remote, or direct localhost access for local Kurtosis), query each node to build a partial baseline:
+        * CL: `/eth/v1/node/syncing`, `/eth/v1/beacon/headers/head`, `/eth/v1/beacon/states/head/finality_checkpoints`
+        * EL: `eth_blockNumber`, `eth_syncing` (JSON-RPC)
+        * Compare head slots/roots and finality checkpoints across nodes to detect splits or disagreement.
       - If Loki is the only available source, use label discovery and high-signal log queries to build a best-effort baseline.
       - When identifying instances, use the full resolved instance names, not shortened labels.
       - When possible, return instance-level status notes that help an operator decide what to inspect next.
+
+      Baseline summary checklist — address each point:
+      1. Single fork or split?
+      2. Is finality progressing?
+      3. Participation rate (>66.7% of stake required for finality)?
+      4. Missed slots or empty epochs?
+      5. Which nodes are offline or underperforming?
+
+      Healthy-network early exit: if Dora shows a healthy network (single fork, finality progressing, high participation) but the user reports issues, present the baseline findings and ask the user for more specific details before proceeding further.
 
       Produce a concise baseline summary plus concrete evidence and affected instances when they can be identified.
       Preserve note-derived expectations when they matter for interpreting the network state.
