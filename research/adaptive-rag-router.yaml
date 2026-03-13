@@ -74,7 +74,7 @@ tasks:
     tasks:
       direct:
         if: ${{ inputs.mode == 'direct' }}
-        uses: ethpandaops/answer-direct@1
+        uses: wagie/answer-direct@1
         inputs:
           query: "${{ inputs.query }}"
           context: "${{ has(inputs.context) ? inputs.context : '' }}"
@@ -82,7 +82,7 @@ tasks:
           answer: answer
       local_rag:
         if: ${{ inputs.mode == 'local_rag' }}
-        uses: ethpandaops/local-evidence-retrieval@1
+        uses: wagie/local-evidence-retrieval@1
         inputs:
           query: ${{ inputs.query }}
           sources: ${{ inputs.sources }}
@@ -159,7 +159,7 @@ tasks:
       evidence_summary: "${{ has(tasks.local_rag.outputs.synthesis) ? tasks.local_rag.outputs.synthesis : (has(tasks.web_rag.outputs.summary) ? tasks.web_rag.outputs.summary : (has(tasks.graph_rag.outputs.summary) ? tasks.graph_rag.outputs.summary : '')) }}"
   answer:
     needs: [gather]
-    uses: ethpandaops/answer-from-evidence@1
+    uses: wagie/answer-from-evidence@1
     inputs:
       query: "${{ inputs.query }}"
       direct_answer: "${{ tasks.gather.outputs.draft_answer }}"

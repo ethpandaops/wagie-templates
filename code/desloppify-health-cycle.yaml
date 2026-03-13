@@ -123,7 +123,7 @@ tasks:
       open_count: open_count
   target_check_final:
     needs: [rescan]
-    uses: ethpandaops/score-threshold-check@1
+    uses: wagie/score-threshold-check@1
     inputs:
       score: "${{ tasks.rescan.outputs.overall_score }}"
       threshold: "${{ inputs.target_score }}"
