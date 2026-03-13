@@ -1,0 +1,196 @@
+name: wagie/kurtosis-ethereum-bug-hunt
+version: "1.0"
+description: >-
+  Use when a workflow needs to launch or inspect a Kurtosis Ethereum network and identify candidate bugs or anomalies for deeper follow-up.
+tags: ["domain", "kurtosis", "ethereum", "ethpandaops", "bug-hunt", "debugging", "type:domain", "flow:compose", "flow:session", "cap:reasoning", "cap:tool-use"]
+inputs:
+  goal:
+    type: string
+    required: true
+    description: Desired network setup or bug-hunting objective
+  enclave_name:
+    type: string
+    required: true
+    description: Kurtosis enclave name to create or inspect
+  hunt_focus:
+    type: string
+    default: general
+    description: Optional focus such as finality, interop, forks, or service-health
+  constraints:
+    type: string
+    description: Optional implementation constraints
+  example_hint:
+    type: string
+    description: Optional CI example or package feature hint
+  package_ref:
+    type: string
+    default: github.com/ethpandaops/ethereum-package
+    description: Kurtosis package reference to run
+  config_mode:
+    type: string
+    default: minimal
+    description: Whether to design a sensible minimal config or replicate an existing devnet profile
+    schema:
+      type: string
+      enum: [minimal, devnet-profile]
+  devnet_name:
+    type: string
+    description: Existing devnet or devnet-group name to model when `config_mode` is `devnet-profile`
+  client_type:
+    type: string
+    description: Optional client type to preserve explicitly in the generated config
+  image_hint:
+    type: string
+    description: Optional image or build hint to preserve explicitly in the generated config
+  client_pairs:
+    type: array
+    description: Optional explicit client-pair and image combinations to pass through to config design
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          el_type:
+            type: string
+          cl_type:
+            type: string
+          vc_type:
+            type: string
+          el_image:
+            type: string
+          cl_image:
+            type: string
+          vc_image:
+            type: string
+          el_extra_params:
+            type: array
+            items:
+              type: string
+          cl_extra_params:
+            type: array
+            items:
+              type: string
+          vc_extra_params:
+            type: array
+            items:
+              type: string
+          count:
+            type: number
+        required: [el_type, cl_type]
+  launch:
+    type: boolean
+    default: true
+    description: Whether to launch a fresh network before hunting
+  auto_cleanup:
+    type: boolean
+    default: true
+    description: Whether to remove the enclave after the hunt
+tasks:
+  lifecycle:
+    uses: wagie/kurtosis-ethereum-network-lifecycle@1
+    session: true
+    inputs:
+      goal: ${{ inputs.goal }}
+      enclave_name: ${{ inputs.enclave_name }}
+      constraints: "${{ has(inputs.constraints) ? inputs.constraints : '' }}"
+      example_hint: "${{ has(inputs.example_hint) ? inputs.example_hint : '' }}"
+      package_ref: ${{ inputs.package_ref }}
+      config_mode: ${{ inputs.config_mode }}
+      devnet_name: "${{ has(inputs.devnet_name) ? inputs.devnet_name : '' }}"
+      client_type: "${{ has(inputs.client_type) ? inputs.client_type : '' }}"
+      image_hint: "${{ has(inputs.image_hint) ? inputs.image_hint : '' }}"
+      client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
+      launch: ${{ inputs.launch }}
+      auto_cleanup: false
+    outputs:
+      config_yaml: config_yaml
+      config_summary: config_summary
+      effective_client_pairs: effective_client_pairs
+      fallback_pair_added: fallback_pair_added
+      launch_summary: launch_summary
+      status_summary: status_summary
+      service_names: service_names
+      public_endpoints: public_endpoints
+  hunt_bugs:
+    needs: [lifecycle]
+    worker: {match: "'reasoning' in skills && 'tool-use' in capabilities"}
+    run: hunt-kurtosis-ethereum-bugs
+    retry:
+      max: 1
+      on: [error, timeout, schema-validation, quality-gate]
+      backoff:
+        delay: 10s
+        factor: 2
+        max-delay: 30s
+        jitter: true
+      timeout: 5m
+    quality-gate: "${{ has(result.summary) && size(result.summary) > 0 && has(result.findings) }}"
+    instructions: |-
+      Hunt for candidate bugs, regressions, or anomalies in the Kurtosis Ethereum network.
+
+      Use the `kurtosis` CLI as the primary tool surface for this task.
+      Use the `panda` binary when you need to surface network or devnet information during the hunt.
+
+      Focus on:
+      - stalled or unhealthy network behavior
+      - cross-client inconsistencies
+      - service failures or missing expected capabilities
+      - suspicious signs worth handing to a deeper investigation flow
+
+      Keep findings concrete and prioritize the most actionable candidates.
+    inputs:
+      enclave_name: ${{ inputs.enclave_name }}
+      goal: ${{ inputs.goal }}
+      hunt_focus: ${{ inputs.hunt_focus }}
+      config_summary: ${{ tasks.lifecycle.outputs.config_summary }}
+      launch_summary: ${{ tasks.lifecycle.outputs.launch_summary }}
+      status_summary: ${{ tasks.lifecycle.outputs.status_summary }}
+      service_names: ${{ tasks.lifecycle.outputs.service_names }}
+      public_endpoints: ${{ tasks.lifecycle.outputs.public_endpoints }}
+    outputs:
+      findings: "${{ has(result.findings) ? result.findings : [] }}"
+      summary: ${{ result.summary }}
+      recommended_actions: "${{ has(result.recommended_actions) ? result.recommended_actions : [] }}"
+      schema:
+        findings:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+              severity:
+                type: string
+              summary:
+                type: string
+              affected_scope:
+                type: string
+            required: [title, severity, summary, affected_scope]
+          description: Candidate bugs or anomalies worth deeper follow-up
+        summary:
+          type: string
+          description: Concise hunt summary
+        recommended_actions:
+          type: array
+          items:
+            type: string
+          description: Suggested next actions after the hunt
+finally:
+  cleanup_enclave:
+    if: ${{ inputs.auto_cleanup == true && inputs.launch == true }}
+    uses: wagie/kurtosis-enclave-cleanup@1
+    inputs:
+      enclave_name: ${{ inputs.enclave_name }}
+      force: true
+    outputs:
+      removed: removed
+      summary: summary
+outputs:
+  resolved_network_name: "${{ has(tasks.lifecycle.outputs.resolved_network_name) ? tasks.lifecycle.outputs.resolved_network_name : '' }}"
+  config_yaml: ${{ tasks.lifecycle.outputs.config_yaml }}
+  effective_client_pairs: "${{ has(tasks.lifecycle.outputs.effective_client_pairs) ? tasks.lifecycle.outputs.effective_client_pairs : [] }}"
+  fallback_pair_added: "${{ has(tasks.lifecycle.outputs.fallback_pair_added) ? tasks.lifecycle.outputs.fallback_pair_added : false }}"
+  launch_summary: ${{ tasks.lifecycle.outputs.launch_summary }}
+  findings: ${{ tasks.hunt_bugs.outputs.findings }}
+  summary: ${{ tasks.hunt_bugs.outputs.summary }}
+  recommended_actions: ${{ tasks.hunt_bugs.outputs.recommended_actions }}

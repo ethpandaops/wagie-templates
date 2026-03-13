@@ -1,0 +1,163 @@
+name: wagie/devnet-report
+version: "1.0"
+description: >-
+  Use when a workflow needs a shareable Ethereum devnet incident report; renders structured debug outputs into concise markdown with instance-level findings and concrete evidence for operators and stakeholders.
+tags: ["pattern", "devnet", "ethereum", "ethpandaops", "reporting", "building-block", "type:pattern", "flow:compose", "cap:reasoning"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 2m
+inputs:
+  network_name:
+    type: string
+    required: true
+    description: Resolved target devnet name
+  investigation_timeframe:
+    type: string
+    required: true
+    description: Active investigation timeframe
+  problem_statement:
+    type: string
+    description: User-reported symptom or debugging goal
+  context_summary:
+    type: string
+    required: true
+    description: Normalized context summary
+  issue_type:
+    type: string
+    required: true
+    description: Top-level issue classification
+  root_cause:
+    type: string
+    required: true
+    description: Most likely root cause
+  severity:
+    type: string
+    description: Overall severity estimate
+  baseline_summary:
+    type: string
+    description: Baseline network state summary
+  findings_summary:
+    type: string
+    required: true
+    description: Investigation findings summary
+  affected_instances:
+    type: array
+    default: []
+    description: Instances most likely involved
+    schema:
+      type: array
+      items:
+        type: string
+  evidence:
+    type: array
+    default: []
+    description: Supporting observations
+    schema:
+      type: array
+      items:
+        type: string
+  instance_reports:
+    type: array
+    default: []
+    description: Instance-level findings using full resolved instance names
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          instance_name:
+            type: string
+          role:
+            type: string
+          client:
+            type: string
+          status:
+            type: string
+          summary:
+            type: string
+          evidence:
+            type: array
+            items:
+              type: string
+          suggested_actions:
+            type: array
+            items:
+              type: string
+        required: [instance_name, summary]
+  log_examples:
+    type: array
+    default: []
+    description: Concrete log or RPC evidence examples
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          instance_name:
+            type: string
+          source:
+            type: string
+          excerpt:
+            type: string
+          significance:
+            type: string
+        required: [source, excerpt, significance]
+  recommended_actions:
+    type: array
+    default: []
+    description: Suggested next actions
+    schema:
+      type: array
+      items:
+        type: string
+tasks:
+  render_report:
+    worker: {match: "'reasoning' in skills"}
+    run: render-devnet-report
+    quality-gate: "${{ has(result.report_markdown) && size(result.report_markdown) > 0 }}"
+    instructions: |-
+      Render a concise markdown incident report for sharing.
+
+      Required sections:
+      1. Title
+      2. Situation
+      3. Current assessment
+      4. Affected instances
+      5. Concrete log / RPC evidence
+      6. Recommended actions
+
+      Keep the report compact and operational. Use bullets where they improve scanability.
+      Prefer full resolved instance names over shortened labels.
+      Include concrete evidence excerpts when available, not just paraphrases.
+      Make the recommended actions debuggable and actionable for an operator.
+      If a section has little data, say so directly instead of padding.
+    inputs:
+      network_name: ${{ inputs.network_name }}
+      investigation_timeframe: ${{ inputs.investigation_timeframe }}
+      problem_statement: "${{ has(inputs.problem_statement) ? inputs.problem_statement : '' }}"
+      context_summary: ${{ inputs.context_summary }}
+      issue_type: ${{ inputs.issue_type }}
+      root_cause: ${{ inputs.root_cause }}
+      severity: "${{ has(inputs.severity) ? inputs.severity : 'medium' }}"
+      baseline_summary: "${{ has(inputs.baseline_summary) ? inputs.baseline_summary : '' }}"
+      findings_summary: ${{ inputs.findings_summary }}
+      affected_instances: ${{ inputs.affected_instances }}
+      evidence: ${{ inputs.evidence }}
+      instance_reports: ${{ inputs.instance_reports }}
+      log_examples: ${{ inputs.log_examples }}
+      recommended_actions: ${{ inputs.recommended_actions }}
+    outputs:
+      report_markdown: ${{ result.report_markdown }}
+      schema:
+        report_markdown:
+          type: string
+          description: Shareable markdown incident report
+outputs:
+  report_markdown: ${{ tasks.render_report.outputs.report_markdown }}

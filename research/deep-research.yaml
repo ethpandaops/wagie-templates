@@ -1,0 +1,123 @@
+name: wagie/deep-research
+version: "1.0"
+description: >-
+  Use when a topic requires iterative depth-building; accumulates typed finding batches, assesses coverage, and stops when explicit sufficiency is reached.
+tags: ["pattern", "research", "iterative", "deep-research", "type:pattern", "flow:loop", "flow:compose", "cap:reasoning", "cap:research"]
+inputs:
+  topic:
+    type: string
+    required: true
+    description: The topic to research
+  depth:
+    type: string
+    default: moderate
+    options: [shallow, moderate, deep]
+    description: >-
+      Desired research depth. shallow: overview (completeness >= 60). moderate: solid coverage (>= 80). deep: comprehensive (>= 95).
+  max_iterations:
+    type: number
+    default: 5
+    description: Maximum research iterations
+tasks:
+  research:
+    loop:
+      max: "${{ inputs.max_iterations }}"
+      init:
+        findings: "${{ [] }}"
+        gaps: "${{ [] }}"
+        completeness: "${{ 'insufficient' }}"
+      until: "${{ loop.completeness == 'sufficient' }}"
+      on-max-exhausted: continue
+    inputs:
+      topic: "${{ inputs.topic }}"
+      depth: "${{ inputs.depth }}"
+      previous_findings: "${{ loop.findings }}"
+      gaps: "${{ loop.gaps }}"
+    tasks:
+      investigate:
+        uses: wagie/research-findings@1
+        inputs:
+          topic: "${{ inputs.topic }}"
+          previous_findings: "${{ inputs.previous_findings }}"
+          gaps: "${{ inputs.gaps }}"
+        outputs:
+          findings: findings
+      accumulate:
+        needs: [investigate]
+        worker: {match: "'reasoning' in skills"}
+        run: accumulate-research-findings
+        quality-gate: "${{ has(result.findings) }}"
+        instructions: |-
+          Merge prior findings with the new research batch.
+
+          Rules:
+          - Preserve previous findings
+          - Append only substantively new findings
+          - Avoid duplicates or trivial paraphrases
+        inputs:
+          previous_findings: "${{ inputs.previous_findings }}"
+          new_findings: "${{ tasks.investigate.outputs.findings }}"
+        outputs:
+          findings: "${{ result.findings }}"
+          schema:
+            findings:
+              type: array
+              items:
+                type: object
+                properties:
+                  claim:
+                    type: string
+                  evidence:
+                    type: string
+                  confidence:
+                    type: number
+                  contradictions:
+                    type: string
+                required: [claim, evidence, confidence]
+              description: Accumulated research findings across iterations
+      assess:
+        needs: [accumulate]
+        uses: wagie/research-coverage-assess@1
+        inputs:
+          topic: "${{ inputs.topic }}"
+          depth: "${{ inputs.depth }}"
+          findings: "${{ tasks.accumulate.outputs.findings }}"
+        outputs:
+          completeness: completeness
+          gaps: gaps
+          summary: summary
+    outputs:
+      findings: "${{ tasks.accumulate.outputs.findings }}"
+      gaps: "${{ tasks.assess.outputs.gaps }}"
+      completeness: "${{ tasks.assess.outputs.completeness }}"
+      summary: "${{ tasks.assess.outputs.summary }}"
+      schema:
+        findings:
+          type: array
+          items:
+            type: object
+            properties:
+              claim:
+                type: string
+              evidence:
+                type: string
+              confidence:
+                type: number
+              contradictions:
+                type: string
+            required: [claim, evidence, confidence]
+        gaps:
+          type: array
+          items:
+            type: string
+        completeness:
+          type: string
+          enum: [insufficient, sufficient]
+        summary:
+          type: string
+outputs:
+  findings: ${{ tasks.research.outputs.findings }}
+  gaps: ${{ tasks.research.outputs.gaps }}
+  completeness: ${{ tasks.research.outputs.completeness }}
+  summary: ${{ tasks.research.outputs.summary }}
+  converged: ${{ tasks.research.loop.converged }}

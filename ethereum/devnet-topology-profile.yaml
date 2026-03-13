@@ -1,0 +1,154 @@
+name: wagie/devnet-topology-profile
+version: "1.0"
+description: >-
+  Use when a config workflow needs a minimal participant topology derived from devnet notes and explicit hints; returns representative client pairs and config-relevant assumptions only.
+tags: ["building-block", "devnet", "ethereum", "configuration", "type:building-block", "flow:compose", "cap:reasoning"]
+inputs:
+  devnet_name:
+    type: string
+    required: true
+    description: Source devnet name
+  goal:
+    type: string
+    description: Optional goal for the derived config
+  client_type:
+    type: string
+    description: Optional client type to preserve explicitly
+  image_hint:
+    type: string
+    description: Optional image or build hint to preserve explicitly
+  client_pairs:
+    type: array
+    description: Optional explicit client-pair input that should override inferred topology
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          el_type:
+            type: string
+          cl_type:
+            type: string
+          vc_type:
+            type: string
+          el_image:
+            type: string
+          cl_image:
+            type: string
+          vc_image:
+            type: string
+          el_extra_params:
+            type: array
+            items:
+              type: string
+          cl_extra_params:
+            type: array
+            items:
+              type: string
+          vc_extra_params:
+            type: array
+            items:
+              type: string
+          count:
+            type: number
+        required: [el_type, cl_type]
+  constraints:
+    type: string
+    description: Optional constraints
+  notes_summary:
+    type: string
+    description: Concise devnet notes summary
+  notes_highlights:
+    type: array
+    default: []
+    schema:
+      type: array
+      items:
+        type: string
+  notes_assumptions:
+    type: array
+    default: []
+    schema:
+      type: array
+      items:
+        type: string
+tasks:
+  derive:
+    worker: {match: "'reasoning' in skills"}
+    run: derive-devnet-topology-profile
+    quality-gate: "${{ has(result.profile_summary) && size(result.profile_summary) > 0 && has(result.effective_client_pairs) }}"
+    instructions: |-
+      Derive the smallest participant topology that still preserves the devnet behavior relevant to the goal.
+
+      Required behavior:
+      - Use explicit client_pairs as the primary topology input when provided.
+      - Otherwise infer representative client/image combinations from the notes inputs only.
+      - Collapse repeated identical client pairs to a single representative pair by default.
+      - Use count=1 for each preserved pair unless multiplicity is explicitly required by the goal or constraints.
+      - Preserve only config-relevant assumptions, flags, and image hints.
+      - Add a fallback pair only when no viable participant pair can be inferred.
+    inputs:
+      devnet_name: ${{ inputs.devnet_name }}
+      goal: "${{ has(inputs.goal) ? inputs.goal : '' }}"
+      client_type: "${{ has(inputs.client_type) ? inputs.client_type : '' }}"
+      image_hint: "${{ has(inputs.image_hint) ? inputs.image_hint : '' }}"
+      client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
+      constraints: "${{ has(inputs.constraints) ? inputs.constraints : '' }}"
+      notes_summary: "${{ has(inputs.notes_summary) ? inputs.notes_summary : '' }}"
+      notes_highlights: ${{ inputs.notes_highlights }}
+      notes_assumptions: ${{ inputs.notes_assumptions }}
+    outputs:
+      profile_summary: ${{ result.profile_summary }}
+      assumptions: "${{ has(result.assumptions) ? result.assumptions : [] }}"
+      effective_client_pairs: "${{ has(result.effective_client_pairs) ? result.effective_client_pairs : [] }}"
+      fallback_pair_added: "${{ has(result.fallback_pair_added) ? result.fallback_pair_added : false }}"
+      schema:
+        profile_summary:
+          type: string
+          description: Concise summary of the representative topology and preserved config-relevant traits
+        assumptions:
+          type: array
+          items:
+            type: string
+          description: Config-relevant assumptions from the source devnet
+        effective_client_pairs:
+          type: array
+          items:
+            type: object
+            properties:
+              el_type:
+                type: string
+              cl_type:
+                type: string
+              vc_type:
+                type: string
+              el_image:
+                type: string
+              cl_image:
+                type: string
+              vc_image:
+                type: string
+              el_extra_params:
+                type: array
+                items:
+                  type: string
+              cl_extra_params:
+                type: array
+                items:
+                  type: string
+              vc_extra_params:
+                type: array
+                items:
+                  type: string
+              count:
+                type: number
+            required: [el_type, cl_type]
+          description: Minimal representative participant topology
+        fallback_pair_added:
+          type: boolean
+          description: Whether a fallback pair was added because no viable participant pair could be inferred
+outputs:
+  profile_summary: ${{ tasks.derive.outputs.profile_summary }}
+  assumptions: ${{ tasks.derive.outputs.assumptions }}
+  effective_client_pairs: ${{ tasks.derive.outputs.effective_client_pairs }}
+  fallback_pair_added: ${{ tasks.derive.outputs.fallback_pair_added }}

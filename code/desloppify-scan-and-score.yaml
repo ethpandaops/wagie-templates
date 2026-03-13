@@ -1,0 +1,69 @@
+name: wagie/desloppify-scan-and-score
+version: "1.0"
+description: >-
+  Use when assessing the current health state of a codebase; runs desloppify scan followed
+  by status to produce findings and composite health scores in one step.
+tags: ["pattern", "desloppify", "code-quality", "type:pattern", "flow:compose", "cap:tool-use"]
+inputs:
+  repo:
+    type: string
+    required: true
+    description: "Repository in owner/name format"
+  branch_name:
+    type: string
+    required: true
+    description: "Branch to scan and score"
+  state_json:
+    type: string
+    default: ""
+    description: "Serialized desloppify state to materialize locally before running"
+  exclusions:
+    type: array
+    default: []
+    description: "Directories to exclude from scanning"
+    schema:
+      type: array
+      items:
+        type: string
+tasks:
+  scan:
+    uses: wagie/desloppify-scan@1
+    inputs:
+      repo: "${{ inputs.repo }}"
+      branch_name: "${{ inputs.branch_name }}"
+      state_json: "${{ inputs.state_json }}"
+      exclusions: "${{ inputs.exclusions }}"
+    outputs:
+      findings_count: findings_count
+      state_json: state_json
+      detectors_run: detectors_run
+      tier_breakdown: tier_breakdown
+      languages_detected: languages_detected
+  score:
+    needs: [scan]
+    uses: wagie/desloppify-status@1
+    inputs:
+      repo: "${{ inputs.repo }}"
+      branch_name: "${{ inputs.branch_name }}"
+      state_json: "${{ tasks.scan.outputs.state_json }}"
+    outputs:
+      overall_score: overall_score
+      strict_score: strict_score
+      objective_score: objective_score
+      verified_score: verified_score
+      open_count: open_count
+      fixed_count: fixed_count
+      wontfix_count: wontfix_count
+      dimensions: dimensions
+      state_json: state_json
+outputs:
+  findings_count: ${{ tasks.scan.outputs.findings_count }}
+  state_json: ${{ tasks.score.outputs.state_json }}
+  tier_breakdown: ${{ tasks.scan.outputs.tier_breakdown }}
+  languages_detected: ${{ tasks.scan.outputs.languages_detected }}
+  overall_score: ${{ tasks.score.outputs.overall_score }}
+  strict_score: ${{ tasks.score.outputs.strict_score }}
+  objective_score: ${{ tasks.score.outputs.objective_score }}
+  open_count: ${{ tasks.score.outputs.open_count }}
+  fixed_count: ${{ tasks.score.outputs.fixed_count }}
+  dimensions: ${{ tasks.score.outputs.dimensions }}

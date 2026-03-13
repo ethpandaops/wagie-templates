@@ -1,0 +1,74 @@
+name: wagie/desloppify-resolve
+version: "1.0"
+description: >-
+  Use when marking a desloppify queue item fixed after code changes; records the fix
+  with `desloppify plan resolve` using a concrete note.
+tags: ["type:atomic", "desloppify", "code-quality", "resolution", "cap:tool-use"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff: { delay: 5s, factor: 2, max-delay: 20s, jitter: true }
+    timeout: 2m
+inputs:
+  repo:
+    type: string
+    required: true
+    description: "Repository in owner/name format"
+  branch_name:
+    type: string
+    required: true
+    description: "Branch whose planned finding should be resolved"
+  state_json:
+    type: string
+    default: ""
+    description: "Serialized desloppify state to materialize locally before running"
+  finding_pattern:
+    type: string
+    required: true
+    description: "Finding ID or other plan pattern to resolve"
+  note:
+    type: string
+    required: true
+    description: "Concrete note describing what was fixed"
+  force_resolve:
+    type: boolean
+    default: false
+    description: "Bypass triage guardrails when the upstream command requires it"
+tasks:
+  resolve:
+    worker:
+      match: "'tool-use' in capabilities"
+    run: desloppify-resolve
+    quality-gate: "${{ has(result.resolved) && result.resolved == true }}"
+    instructions: |-
+      Clone or reuse `repo`, fetch `origin/branch_name`, and checkout the branch before
+      invoking desloppify.
+      If `state_json` is provided, write it to a temporary state file and pass `--state`
+      to the upstream command. After the command finishes, read the active state file and
+      return it as `state_json`.
+      Run `desloppify plan resolve <finding_pattern> --note "<note>" --confirm`.
+      Add `--force-resolve` only when `force_resolve` is true.
+      Confirm the queue item was recorded as fixed.
+    inputs:
+      repo: "${{ inputs.repo }}"
+      branch_name: "${{ inputs.branch_name }}"
+      state_json: "${{ inputs.state_json }}"
+      finding_pattern: "${{ inputs.finding_pattern }}"
+      note: "${{ inputs.note }}"
+      force_resolve: "${{ inputs.force_resolve }}"
+    outputs:
+      resolved: "${{ result.resolved }}"
+      state_json: "${{ result.state_json }}"
+      finding_pattern: "${{ inputs.finding_pattern }}"
+      note: "${{ inputs.note }}"
+      schema:
+        resolved: { type: boolean }
+        state_json: { type: string }
+        finding_pattern: { type: string }
+        note: { type: string }
+outputs:
+  resolved: ${{ tasks.resolve.outputs.resolved }}
+  state_json: ${{ tasks.resolve.outputs.state_json }}
+  finding_pattern: ${{ tasks.resolve.outputs.finding_pattern }}
+  note: ${{ tasks.resolve.outputs.note }}

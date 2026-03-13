@@ -1,0 +1,40 @@
+name: wagie/kurtosis-enclave-cleanup
+version: "1.0"
+description: >-
+  Use when a workflow needs to remove a Kurtosis enclave cleanly; tears down the enclave and summarizes the result.
+tags: ["atomic", "kurtosis", "ethereum", "ethpandaops", "cleanup", "building-block", "type:atomic", "cap:tool-use"]
+inputs:
+  enclave_name:
+    type: string
+    required: true
+    description: Kurtosis enclave to remove
+  force:
+    type: boolean
+    default: true
+    description: Whether to force enclave removal
+tasks:
+  cleanup_enclave:
+    worker: {match: "'tool-use' in capabilities"}
+    run: cleanup-kurtosis-enclave
+    quality-gate: "${{ has(result.removed) }}"
+    instructions: |-
+      Remove the requested Kurtosis enclave.
+
+      Use the `kurtosis` CLI as the primary tool surface for this task.
+      Prefer the normal enclave removal flow and summarize the result clearly.
+    inputs:
+      enclave_name: ${{ inputs.enclave_name }}
+      force: ${{ inputs.force }}
+    outputs:
+      removed: ${{ result.removed }}
+      summary: "${{ has(result.summary) ? result.summary : '' }}"
+      schema:
+        removed:
+          type: boolean
+          description: Whether the enclave was removed successfully
+        summary:
+          type: string
+          description: Cleanup summary
+outputs:
+  removed: ${{ tasks.cleanup_enclave.outputs.removed }}
+  summary: ${{ tasks.cleanup_enclave.outputs.summary }}

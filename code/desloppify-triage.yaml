@@ -1,0 +1,82 @@
+name: wagie/desloppify-triage
+version: "1.0"
+description: >-
+  Use when review findings need a concrete execution order; delegate to desloppify's
+  native staged triage runner, then preview the top queued items.
+tags: ["type:pattern", "desloppify", "code-quality", "triage", "flow:compose", "cap:tool-use"]
+inputs:
+  repo:
+    type: string
+    required: true
+    description: "Repository in owner/name format"
+  branch_name:
+    type: string
+    required: true
+    description: "Branch whose queued findings should be triaged"
+  state_json:
+    type: string
+    default: ""
+    description: "Serialized desloppify state to materialize locally before running"
+  max_items:
+    type: number
+    default: 20
+    description: "Maximum number of queued items to preview after triage"
+  only_stages:
+    type: array
+    default: []
+    description: "Optional subset of triage stages to run"
+    schema:
+      type: array
+      items:
+        type: string
+tasks:
+  run_triage:
+    worker:
+      match: "'tool-use' in capabilities"
+    run: desloppify-triage
+    recovery: fail
+    quality-gate: "${{ has(result.triage_completed) }}"
+    instructions: |-
+      Clone or reuse `repo`, fetch `origin/branch_name`, and checkout the branch before
+      invoking desloppify.
+      If `state_json` is provided, write it to a temporary state file and pass `--state`
+      to the upstream plan commands. After triage finishes, read the active state file and
+      return it as `state_json`.
+      Run desloppify's native staged triage flow with
+      `desloppify plan triage --run-stages --runner codex`.
+      If `only_stages` is non-empty, pass them through as the upstream `--only-stages`
+      subset.
+      Return whether triage completed, a concise summary of the strategy, and how many
+      items are now planned.
+    inputs:
+      repo: "${{ inputs.repo }}"
+      branch_name: "${{ inputs.branch_name }}"
+      state_json: "${{ inputs.state_json }}"
+      only_stages: "${{ inputs.only_stages }}"
+    outputs:
+      triage_completed: "${{ result.triage_completed }}"
+      total_planned: "${{ result.total_planned }}"
+      triage_summary: "${{ result.triage_summary }}"
+      state_json: "${{ result.state_json }}"
+      schema:
+        triage_completed: { type: boolean }
+        total_planned: { type: number }
+        triage_summary: { type: string }
+        state_json: { type: string }
+  queue_preview:
+    needs: [run_triage]
+    if: "${{ tasks.run_triage.outputs.triage_completed == true && tasks.run_triage.outputs.total_planned > 0 }}"
+    uses: wagie/desloppify-next@1
+    inputs:
+      repo: "${{ inputs.repo }}"
+      branch_name: "${{ inputs.branch_name }}"
+      state_json: "${{ tasks.run_triage.outputs.state_json }}"
+      count: "${{ inputs.max_items }}"
+    outputs:
+      items: items
+      state_json: state_json
+outputs:
+  plan_items: "${{ has(tasks.queue_preview.outputs.items) ? tasks.queue_preview.outputs.items : [] }}"
+  total_planned: ${{ tasks.run_triage.outputs.total_planned }}
+  triage_summary: ${{ tasks.run_triage.outputs.triage_summary }}
+  state_json: "${{ has(tasks.queue_preview.outputs.state_json) ? tasks.queue_preview.outputs.state_json : tasks.run_triage.outputs.state_json }}"

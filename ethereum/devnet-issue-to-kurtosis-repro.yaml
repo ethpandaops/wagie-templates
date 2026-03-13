@@ -1,0 +1,258 @@
+name: wagie/devnet-issue-to-kurtosis-repro
+version: "1.0"
+description: >-
+  Use when a workflow needs to investigate an active devnet issue and then reproduce it in Kurtosis using a config derived from that devnet profile and the implicated client or image hints.
+tags: ["domain", "devnet", "kurtosis", "ethereum", "ethpandaops", "reproduction", "debugging", "type:domain", "flow:compose", "flow:session", "cap:reasoning", "cap:tool-use"]
+inputs:
+  devnet_name:
+    type: string
+    required: true
+    description: Active devnet or devnet-group name to investigate and model
+  problem_statement:
+    type: string
+    required: true
+    description: Bug or failure mode observed on the active devnet
+  timeframe:
+    type: string
+    default: past 1 hour
+    description: Investigation timeframe for the active devnet
+  affected_instance:
+    type: string
+    description: Optional specific devnet instance believed to be implicated
+  client_type:
+    type: string
+    description: Optional implicated client type to preserve in the repro
+  image_hint:
+    type: string
+    description: Optional image or build hint to preserve in the repro
+  client_pairs:
+    type: array
+    description: Optional explicit client-pair and image combinations to prefer for the repro topology
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          el_type:
+            type: string
+          cl_type:
+            type: string
+          vc_type:
+            type: string
+          el_image:
+            type: string
+          cl_image:
+            type: string
+          vc_image:
+            type: string
+          el_extra_params:
+            type: array
+            items:
+              type: string
+          cl_extra_params:
+            type: array
+            items:
+              type: string
+          vc_extra_params:
+            type: array
+            items:
+              type: string
+          count:
+            type: number
+        required: [el_type, cl_type]
+  enclave_name:
+    type: string
+    required: true
+    description: Kurtosis enclave name to use for the reproduction attempt
+  constraints:
+    type: string
+    description: Optional reproduction constraints
+  package_ref:
+    type: string
+    default: github.com/ethpandaops/ethereum-package
+    description: Kurtosis package reference to run
+  auto_cleanup:
+    type: boolean
+    default: true
+    description: Whether to remove the Kurtosis enclave after reproduction
+tasks:
+  debug_devnet:
+    uses: wagie/devnet-debug@1
+    inputs:
+      network: ${{ inputs.devnet_name }}
+      problem_statement: ${{ inputs.problem_statement }}
+      timeframe: ${{ inputs.timeframe }}
+      focus: general
+      suspected_instances: "${{ has(inputs.affected_instance) && size(inputs.affected_instance) > 0 ? [inputs.affected_instance] : [] }}"
+    outputs:
+      network_name: network_name
+      investigation_timeframe: investigation_timeframe
+      context_summary: context_summary
+      issue_type: issue_type
+      baseline_summary: baseline_summary
+      affected_instances: affected_instances
+      root_cause: root_cause
+      evidence: evidence
+      recommended_actions: recommended_actions
+      severity: severity
+      summary: summary
+  derive_repro_plan:
+    needs: [debug_devnet]
+    worker: {match: "'reasoning' in skills"}
+    run: derive-devnet-repro-plan
+    retry:
+      max: 1
+      on: [error, timeout, schema-validation, quality-gate]
+      backoff:
+        delay: 5s
+        factor: 2
+        max-delay: 20s
+        jitter: true
+      timeout: 2m
+    quality-gate: "${{ has(result.repro_goal) && size(result.repro_goal) > 0 && has(result.repro_constraints) && size(result.repro_constraints) > 0 }}"
+    instructions: |-
+      Derive a concise reproduction plan from the active devnet investigation.
+
+      Use the available debug outputs and any explicit client or image hints to decide:
+      - what behavior must be preserved in the repro
+      - what client, image, or instance characteristics matter most
+      - what constraints should guide the Kurtosis reproduction setup
+
+      Keep the plan compact and actionable.
+    inputs:
+      devnet_name: ${{ inputs.devnet_name }}
+      problem_statement: ${{ inputs.problem_statement }}
+      affected_instance: "${{ has(inputs.affected_instance) ? inputs.affected_instance : '' }}"
+      client_type: "${{ has(inputs.client_type) ? inputs.client_type : '' }}"
+      image_hint: "${{ has(inputs.image_hint) ? inputs.image_hint : '' }}"
+      client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
+      existing_constraints: "${{ has(inputs.constraints) ? inputs.constraints : '' }}"
+      issue_type: ${{ tasks.debug_devnet.outputs.issue_type }}
+      root_cause: ${{ tasks.debug_devnet.outputs.root_cause }}
+      evidence: ${{ tasks.debug_devnet.outputs.evidence }}
+      summary: ${{ tasks.debug_devnet.outputs.summary }}
+    outputs:
+      repro_goal: ${{ result.repro_goal }}
+      repro_constraints: ${{ result.repro_constraints }}
+      suspected_scope: "${{ has(result.suspected_scope) ? result.suspected_scope : '' }}"
+      schema:
+        repro_goal:
+          type: string
+          description: Goal statement for the Kurtosis reproduction attempt
+        repro_constraints:
+          type: string
+          description: Constraints and preservation requirements for the repro
+        suspected_scope:
+          type: string
+          description: Likely affected scope to preserve in the repro
+  launch_in_kurtosis:
+    needs: [derive_repro_plan]
+    uses: wagie/kurtosis-ethereum-network-lifecycle@1
+    session: true
+    inputs:
+      goal: ${{ tasks.derive_repro_plan.outputs.repro_goal }}
+      enclave_name: ${{ inputs.enclave_name }}
+      constraints: ${{ tasks.derive_repro_plan.outputs.repro_constraints }}
+      package_ref: ${{ inputs.package_ref }}
+      config_mode: devnet-profile
+      devnet_name: ${{ inputs.devnet_name }}
+      client_type: "${{ has(inputs.client_type) ? inputs.client_type : '' }}"
+      image_hint: "${{ has(inputs.image_hint) ? inputs.image_hint : '' }}"
+      client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
+      launch: true
+      auto_cleanup: false
+    outputs:
+      resolved_network_name: resolved_network_name
+      config_yaml: config_yaml
+      config_summary: config_summary
+      devnet_assumptions: devnet_assumptions
+      effective_client_pairs: effective_client_pairs
+      fallback_pair_added: fallback_pair_added
+      launch_summary: launch_summary
+      status_summary: status_summary
+      service_names: service_names
+      public_endpoints: public_endpoints
+  reproduce_in_kurtosis:
+    needs: [launch_in_kurtosis]
+    worker: {match: "'reasoning' in skills && 'tool-use' in capabilities"}
+    run: reproduce-kurtosis-ethereum-bug
+    retry:
+      max: 1
+      on: [error, timeout, schema-validation, quality-gate]
+      backoff:
+        delay: 10s
+        factor: 2
+        max-delay: 30s
+        jitter: true
+      timeout: 5m
+    quality-gate: "${{ has(result.reproduced) && has(result.reproduction_summary) && size(result.reproduction_summary) > 0 }}"
+    instructions: |-
+      Attempt to reproduce the reported bug in the launched Kurtosis Ethereum network.
+
+      Use the `kurtosis` CLI as the primary tool surface for this task.
+      Use the `panda` binary when you need to surface network or devnet information during reproduction.
+
+      Focus on:
+      - whether the described failure can be observed
+      - what evidence best supports or falsifies the reproduction claim
+      - what clients, services, or features appear implicated
+      - what next debugging step should follow
+    inputs:
+      enclave_name: ${{ inputs.enclave_name }}
+      bug_description: ${{ tasks.derive_repro_plan.outputs.repro_goal }}
+      reproduction_goal: ${{ tasks.derive_repro_plan.outputs.repro_goal }}
+      config_summary: ${{ tasks.launch_in_kurtosis.outputs.config_summary }}
+      launch_summary: ${{ tasks.launch_in_kurtosis.outputs.launch_summary }}
+      status_summary: ${{ tasks.launch_in_kurtosis.outputs.status_summary }}
+      service_names: ${{ tasks.launch_in_kurtosis.outputs.service_names }}
+      public_endpoints: ${{ tasks.launch_in_kurtosis.outputs.public_endpoints }}
+    outputs:
+      reproduced: reproduced
+      reproduction_summary: reproduction_summary
+      evidence: evidence
+      suspected_scope: suspected_scope
+      recommended_actions: recommended_actions
+      schema:
+        reproduced:
+          type: boolean
+          description: Whether the bug was successfully reproduced in the launched Kurtosis environment
+        reproduction_summary:
+          type: string
+          description: Summary of the reproduction attempt and outcome
+        evidence:
+          type: string
+          description: Evidence supporting or refuting the reproduction claim
+        suspected_scope:
+          type: string
+          description: Suspected client, service, or feature scope implicated by the attempt
+        recommended_actions:
+          type: string
+          description: Recommended next debugging or validation steps after the attempt
+finally:
+  cleanup_enclave:
+    if: ${{ inputs.auto_cleanup == true }}
+    uses: wagie/kurtosis-enclave-cleanup@1
+    inputs:
+      enclave_name: ${{ inputs.enclave_name }}
+      force: true
+    outputs:
+      removed: removed
+      summary: summary
+outputs:
+  active_devnet_network_name: ${{ tasks.debug_devnet.outputs.network_name }}
+  active_devnet_issue_type: ${{ tasks.debug_devnet.outputs.issue_type }}
+  active_devnet_root_cause: ${{ tasks.debug_devnet.outputs.root_cause }}
+  active_devnet_evidence: ${{ tasks.debug_devnet.outputs.evidence }}
+  active_devnet_summary: ${{ tasks.debug_devnet.outputs.summary }}
+  repro_goal: ${{ tasks.derive_repro_plan.outputs.repro_goal }}
+  repro_constraints: ${{ tasks.derive_repro_plan.outputs.repro_constraints }}
+  derived_repro_config_yaml: ${{ tasks.launch_in_kurtosis.outputs.config_yaml }}
+  derived_repro_config_summary: ${{ tasks.launch_in_kurtosis.outputs.config_summary }}
+  derived_repro_assumptions: ${{ tasks.launch_in_kurtosis.outputs.devnet_assumptions }}
+  effective_client_pairs: ${{ tasks.launch_in_kurtosis.outputs.effective_client_pairs }}
+  fallback_pair_added: ${{ tasks.launch_in_kurtosis.outputs.fallback_pair_added }}
+  reproduced: ${{ tasks.reproduce_in_kurtosis.outputs.reproduced }}
+  reproduction_summary: ${{ tasks.reproduce_in_kurtosis.outputs.reproduction_summary }}
+  reproduction_evidence: ${{ tasks.reproduce_in_kurtosis.outputs.evidence }}
+  suspected_scope: "${{ size(tasks.reproduce_in_kurtosis.outputs.suspected_scope) > 0 ? tasks.reproduce_in_kurtosis.outputs.suspected_scope : tasks.derive_repro_plan.outputs.suspected_scope }}"
+  recommended_actions: ${{ tasks.reproduce_in_kurtosis.outputs.recommended_actions }}

@@ -1,0 +1,80 @@
+name: wagie/kurtosis-enclave-context
+version: "1.0"
+description: >-
+  Use when a workflow needs normalized Kurtosis enclave context; inspects enclave state, services, and reachable endpoints for follow-on debugging or validation.
+tags: ["atomic", "kurtosis", "ethereum", "ethpandaops", "context", "building-block", "type:atomic", "cap:reasoning", "cap:tool-use"]
+defaults:
+  retry:
+    max: 2
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 30s
+      jitter: true
+    timeout: 2m
+inputs:
+  enclave_name:
+    type: string
+    required: true
+    description: Kurtosis enclave to inspect
+  focus:
+    type: string
+    default: general
+    description: Optional inspection focus such as services, ports, logs, or endpoints
+  service_name:
+    type: string
+    description: Optional specific service to prioritize
+  include_logs:
+    type: boolean
+    default: false
+    description: Whether to inspect targeted service logs during context collection
+tasks:
+  inspect_enclave:
+    worker: {match: "'reasoning' in skills && 'tool-use' in capabilities"}
+    run: inspect-kurtosis-enclave
+    quality-gate: "${{ has(result.status_summary) && size(result.status_summary) > 0 && has(result.service_names) }}"
+    instructions: |-
+      Collect normalized context for a Kurtosis enclave.
+
+      Use the `kurtosis` CLI as the primary tool surface for this task.
+
+      Priorities:
+      - Inspect the enclave and summarize service health.
+      - Identify important service names, exposed endpoints, and relevant operator next steps.
+      - If `include_logs` is true, fetch only targeted logs for the prioritized service or the most relevant failing service.
+      - Keep the result operational and concise.
+    inputs:
+      enclave_name: ${{ inputs.enclave_name }}
+      focus: ${{ inputs.focus }}
+      service_name: "${{ has(inputs.service_name) ? inputs.service_name : '' }}"
+      include_logs: ${{ inputs.include_logs }}
+    outputs:
+      status_summary: ${{ result.status_summary }}
+      service_names: "${{ has(result.service_names) ? result.service_names : [] }}"
+      public_endpoints: "${{ has(result.public_endpoints) ? result.public_endpoints : [] }}"
+      suggested_next_commands: "${{ has(result.suggested_next_commands) ? result.suggested_next_commands : [] }}"
+      schema:
+        status_summary:
+          type: string
+          description: Concise enclave status summary
+        service_names:
+          type: array
+          items:
+            type: string
+          description: Services discovered in the enclave
+        public_endpoints:
+          type: array
+          items:
+            type: string
+          description: Important reachable endpoints or ports
+        suggested_next_commands:
+          type: array
+          items:
+            type: string
+          description: Useful follow-on Kurtosis commands
+outputs:
+  status_summary: ${{ tasks.inspect_enclave.outputs.status_summary }}
+  service_names: ${{ tasks.inspect_enclave.outputs.service_names }}
+  public_endpoints: ${{ tasks.inspect_enclave.outputs.public_endpoints }}
+  suggested_next_commands: ${{ tasks.inspect_enclave.outputs.suggested_next_commands }}

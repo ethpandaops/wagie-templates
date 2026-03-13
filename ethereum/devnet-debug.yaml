@@ -1,0 +1,362 @@
+name: wagie/devnet-debug
+version: "1.0"
+description: >-
+  Use when an Ethereum devnet incident needs structured diagnosis; gathers network context, builds a baseline, investigates likely failure modes, validates hypotheses, and returns an operator-ready debug summary.
+tags: ["domain", "devnet", "ethereum", "ethpandaops", "debugging", "incident", "observability", "type:domain", "flow:compose", "cap:reasoning", "cap:tool-use"]
+inputs:
+  network:
+    type: string
+    required: true
+    description: Target devnet to investigate
+  problem_statement:
+    type: string
+    required: true
+    description: User-reported symptom or debugging goal
+  timeframe:
+    type: string
+    default: past 1 hour
+    description: Requested investigation timeframe or epoch range
+  focus:
+    type: string
+    default: general
+    description: Optional focus such as split, offline-nodes, finality-delay, logs, or rpc-validation
+  suspected_instances:
+    type: array
+    default: []
+    description: Specific node instances to prioritize
+    schema:
+      type: array
+      items:
+        type: string
+tasks:
+  context:
+    uses: wagie/devnet-context@1
+    inputs:
+      network: ${{ inputs.network }}
+      timeframe: ${{ inputs.timeframe }}
+      include_ci_surfaces: true
+    outputs:
+      network_name: network_name
+      network_group: network_group
+      investigation_timeframe: investigation_timeframe
+      clusters: clusters
+      instances: instances
+      data_profile: data_profile
+      summary: summary
+      notes_url: notes_url
+      notes_summary: notes_summary
+      notes_highlights: notes_highlights
+  baseline:
+    needs: [context]
+    uses: wagie/devnet-baseline@1
+    inputs:
+      problem_statement: ${{ inputs.problem_statement }}
+      focus: ${{ inputs.focus }}
+      network_name: ${{ tasks.context.outputs.network_name }}
+      investigation_timeframe: ${{ tasks.context.outputs.investigation_timeframe }}
+      instances: "${{ size(inputs.suspected_instances) > 0 ? inputs.suspected_instances : tasks.context.outputs.instances }}"
+      data_profile: ${{ tasks.context.outputs.data_profile }}
+      context_summary: ${{ tasks.context.outputs.summary }}
+      notes_summary: "${{ has(tasks.context.outputs.notes_summary) ? tasks.context.outputs.notes_summary : '' }}"
+      notes_highlights: "${{ has(tasks.context.outputs.notes_highlights) ? tasks.context.outputs.notes_highlights : [] }}"
+    outputs:
+      suspected_issue_type: suspected_issue_type
+      issue_type_confidence: issue_type_confidence
+      issue_type_reasoning: issue_type_reasoning
+      baseline_summary: baseline_summary
+      affected_instances: affected_instances
+      baseline_evidence: baseline_evidence
+      instance_reports: instance_reports
+  assess_finality:
+    needs: [context, baseline]
+    if: ${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' }}
+    uses: wagie/devnet-finality-assessment@1
+    inputs:
+      network_name: ${{ tasks.context.outputs.network_name }}
+      investigation_timeframe: ${{ tasks.context.outputs.investigation_timeframe }}
+      threshold_epochs: 4
+      instances: ${{ tasks.context.outputs.instances }}
+      data_profile: ${{ tasks.context.outputs.data_profile }}
+      notes_summary: "${{ has(tasks.context.outputs.notes_summary) ? tasks.context.outputs.notes_summary : '' }}"
+      notes_highlights: "${{ has(tasks.context.outputs.notes_highlights) ? tasks.context.outputs.notes_highlights : [] }}"
+    outputs:
+      finality_status: finality_status
+      finality_status_confidence: finality_status_confidence
+      finality_status_reasoning: finality_status_reasoning
+      finality_summary: finality_summary
+      epochs_behind: epochs_behind
+      evidence: evidence
+  analyze_finality_causes:
+    needs: [context, baseline, assess_finality]
+    if: ${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' }}
+    worker: {match: "'tool-use' in capabilities && 'reasoning' in skills"}
+    run: analyze-finality-causes
+    retry:
+      max: 1
+      on: [error, timeout, schema-validation, quality-gate]
+      backoff:
+        delay: 10s
+        factor: 2
+        max-delay: 30s
+        jitter: true
+      timeout: 5m
+    quality-gate: "${{ has(result.likely_causes) && size(result.likely_causes) > 0 && has(result.recommended_actions) && size(result.recommended_actions) > 0 }}"
+    instructions: |-
+      Analyze the most likely causes of the finality problem.
+
+      Use the `panda` binary as the primary tool surface for this task.
+
+      Consider these categories:
+      - low participation
+      - offline or isolated nodes
+      - network split or fork disagreement
+      - client-specific bug
+      - execution-side issue affecting consensus progress
+      - transient condition that is already recovering
+
+      Use available CL metrics first, then logs, then direct node validation when needed.
+      Return likely causes ordered from strongest to weakest, plus practical operator actions.
+      Include concrete instance-level findings using full instance names when identifiable.
+      Include concrete log or RPC evidence examples when they materially support the conclusion.
+    inputs:
+      network_name: ${{ tasks.context.outputs.network_name }}
+      investigation_timeframe: ${{ tasks.context.outputs.investigation_timeframe }}
+      data_profile: ${{ tasks.context.outputs.data_profile }}
+      finality_status: ${{ tasks.assess_finality.outputs.finality_status }}
+      finality_summary: ${{ tasks.assess_finality.outputs.finality_summary }}
+      epochs_behind: ${{ tasks.assess_finality.outputs.epochs_behind }}
+      evidence: ${{ tasks.assess_finality.outputs.evidence }}
+      affected_instances: "${{ has(tasks.baseline.outputs.affected_instances) ? tasks.baseline.outputs.affected_instances : [] }}"
+      baseline_instance_reports: "${{ has(tasks.baseline.outputs.instance_reports) ? tasks.baseline.outputs.instance_reports : [] }}"
+      notes_summary: "${{ has(tasks.context.outputs.notes_summary) ? tasks.context.outputs.notes_summary : '' }}"
+      notes_highlights: "${{ has(tasks.context.outputs.notes_highlights) ? tasks.context.outputs.notes_highlights : [] }}"
+    outputs:
+      likely_causes: likely_causes
+      recommended_actions: recommended_actions
+      summary: summary
+      instance_reports: "${{ has(result.instance_reports) ? result.instance_reports : [] }}"
+      log_examples: "${{ has(result.log_examples) ? result.log_examples : [] }}"
+      schema:
+        likely_causes:
+          type: array
+          items:
+            type: string
+          description: Ordered likely causes of the finality issue
+        recommended_actions:
+          type: array
+          items:
+            type: string
+          description: Practical next actions for operators
+        summary:
+          type: string
+          description: Finality-incident summary
+        instance_reports:
+          type: array
+          items:
+            type: object
+            properties:
+              instance_name:
+                type: string
+              role:
+                type: string
+              client:
+                type: string
+              status:
+                type: string
+              summary:
+                type: string
+              evidence:
+                type: array
+                items:
+                  type: string
+              suggested_actions:
+                type: array
+                items:
+                  type: string
+            required: [instance_name, summary]
+          description: Instance-level findings using full resolved instance names
+        log_examples:
+          type: array
+          items:
+            type: object
+            properties:
+              instance_name:
+                type: string
+              source:
+                type: string
+              excerpt:
+                type: string
+              significance:
+                type: string
+            required: [source, excerpt, significance]
+          description: Concrete log or RPC evidence examples supporting the finality diagnosis
+  investigate_generic:
+    needs: [context, baseline]
+    if: ${{ tasks.baseline.outputs.suspected_issue_type != 'finality-delay' }}
+    worker: {match: "'tool-use' in capabilities && 'reasoning' in skills"}
+    run: investigate-devnet-incident
+    retry:
+      max: 1
+      on: [error, timeout, schema-validation, quality-gate]
+      backoff:
+        delay: 10s
+        factor: 2
+        max-delay: 30s
+        jitter: true
+      timeout: 5m
+    quality-gate: "${{ has(result.findings_summary) && size(result.findings_summary) > 0 && has(result.suspected_root_cause) && size(result.suspected_root_cause) > 0 }}"
+    instructions: |-
+      Investigate the devnet issue deeply using the baseline and the available surfaces.
+
+      Use the `panda` binary as the primary tool surface for this task.
+
+      Investigation guidance:
+      - For network-split, compare fork views, divergence timing, and client or instance clustering.
+      - For offline-nodes, confirm whether nodes are actually unreachable, syncing, isolated, or merely absent from logs.
+      - For finality-delay, correlate participation health, missed slots, and checkpoint disagreement.
+      - For client-bug or execution-issue, compare CL and EL evidence and look for shared patterns by client type.
+      - When Loki is available, start with high-signal CL logs, then inspect EL logs only if CL evidence points there.
+      - When ethnode is available, use direct RPC validation to confirm or falsify the leading hypothesis.
+      - Use full resolved instance names in findings, not shortened labels.
+      - Include concrete log excerpts or RPC observations when they materially support the diagnosis.
+      - Prefer evidence that tells an operator exactly which instance, client, or subsystem to inspect next.
+    inputs:
+      problem_statement: ${{ inputs.problem_statement }}
+      focus: ${{ inputs.focus }}
+      network_name: ${{ tasks.context.outputs.network_name }}
+      investigation_timeframe: ${{ tasks.context.outputs.investigation_timeframe }}
+      data_profile: ${{ tasks.context.outputs.data_profile }}
+      suspected_issue_type: ${{ tasks.baseline.outputs.suspected_issue_type }}
+      baseline_summary: ${{ tasks.baseline.outputs.baseline_summary }}
+      affected_instances: ${{ tasks.baseline.outputs.affected_instances }}
+      baseline_evidence: ${{ tasks.baseline.outputs.baseline_evidence }}
+      instance_reports: "${{ has(tasks.baseline.outputs.instance_reports) ? tasks.baseline.outputs.instance_reports : [] }}"
+      notes_summary: "${{ has(tasks.context.outputs.notes_summary) ? tasks.context.outputs.notes_summary : '' }}"
+      notes_highlights: "${{ has(tasks.context.outputs.notes_highlights) ? tasks.context.outputs.notes_highlights : [] }}"
+    outputs:
+      suspected_root_cause: ${{ result.suspected_root_cause }}
+      findings_summary: ${{ result.findings_summary }}
+      evidence: "${{ has(result.evidence) ? result.evidence : [] }}"
+      recommended_actions: "${{ has(result.recommended_actions) ? result.recommended_actions : [] }}"
+      instance_reports: "${{ has(result.instance_reports) ? result.instance_reports : [] }}"
+      log_examples: "${{ has(result.log_examples) ? result.log_examples : [] }}"
+      schema:
+        suspected_root_cause:
+          type: string
+          description: Most likely root cause hypothesis
+        findings_summary:
+          type: string
+          description: Summary of the key findings
+        evidence:
+          type: array
+          items:
+            type: string
+          description: Concrete observations supporting the hypothesis
+        recommended_actions:
+          type: array
+          items:
+            type: string
+          description: Practical next actions for operators
+        instance_reports:
+          type: array
+          items:
+            type: object
+            properties:
+              instance_name:
+                type: string
+              role:
+                type: string
+              client:
+                type: string
+              status:
+                type: string
+              summary:
+                type: string
+              evidence:
+                type: array
+                items:
+                  type: string
+              suggested_actions:
+                type: array
+                items:
+                  type: string
+            required: [instance_name, summary]
+          description: Instance-level findings using full resolved instance names
+        log_examples:
+          type: array
+          items:
+            type: object
+            properties:
+              instance_name:
+                type: string
+              source:
+                type: string
+              excerpt:
+                type: string
+              significance:
+                type: string
+            required: [source, excerpt, significance]
+          description: Concrete log or RPC evidence examples supporting the diagnosis
+  conclude:
+    needs: [context, baseline, assess_finality, analyze_finality_causes, investigate_generic]
+    worker: {match: "'reasoning' in skills"}
+    run: summarize-devnet-debug
+    retry:
+      max: 1
+      on: [error, timeout, schema-validation, quality-gate]
+      backoff:
+        delay: 5s
+        factor: 2
+        max-delay: 20s
+        jitter: true
+      timeout: 2m
+    quality-gate: "${{ has(result.summary) && size(result.summary) > 0 }}"
+    instructions: |-
+      Produce an operator-ready devnet debug summary.
+
+      Structure:
+      1. What is happening now
+      2. Most likely root cause
+      3. Affected nodes, clients, or forks
+      4. Best supporting evidence
+      5. Recommended next steps
+
+      Be direct and concise. This output should help a principal decide whether to restart nodes, inspect a specific client, escalate to a client team, or continue observing.
+    inputs:
+      network_name: ${{ tasks.context.outputs.network_name }}
+      problem_statement: ${{ inputs.problem_statement }}
+      context_summary: ${{ tasks.context.outputs.summary }}
+      notes_summary: "${{ has(tasks.context.outputs.notes_summary) ? tasks.context.outputs.notes_summary : '' }}"
+      baseline_summary: ${{ tasks.baseline.outputs.baseline_summary }}
+      suspected_issue_type: ${{ tasks.baseline.outputs.suspected_issue_type }}
+      findings_summary: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? tasks.analyze_finality_causes.outputs.summary : tasks.investigate_generic.outputs.findings_summary }}"
+      suspected_root_cause: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? (size(tasks.analyze_finality_causes.outputs.likely_causes) > 0 ? tasks.analyze_finality_causes.outputs.likely_causes[0] : 'finality degradation') : tasks.investigate_generic.outputs.suspected_root_cause }}"
+      evidence: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? tasks.assess_finality.outputs.evidence : tasks.investigate_generic.outputs.evidence }}"
+      recommended_actions: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? tasks.analyze_finality_causes.outputs.recommended_actions : tasks.investigate_generic.outputs.recommended_actions }}"
+    outputs:
+      summary: ${{ result.summary }}
+      severity: "${{ has(result.severity) ? result.severity : 'medium' }}"
+      schema:
+        summary:
+          type: string
+          description: Final operator-ready devnet debug summary
+        severity:
+          type: string
+          description: Overall incident severity estimate
+          enum: [low, medium, high, critical]
+outputs:
+  network_name: ${{ tasks.context.outputs.network_name }}
+  investigation_timeframe: ${{ tasks.context.outputs.investigation_timeframe }}
+  context_summary: ${{ tasks.context.outputs.summary }}
+  notes_url: "${{ has(tasks.context.outputs.notes_url) ? tasks.context.outputs.notes_url : '' }}"
+  issue_type: ${{ tasks.baseline.outputs.suspected_issue_type }}
+  issue_type_confidence: ${{ tasks.baseline.outputs.issue_type_confidence }}
+  baseline_summary: ${{ tasks.baseline.outputs.baseline_summary }}
+  affected_instances: ${{ tasks.baseline.outputs.affected_instances }}
+  root_cause: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? (size(tasks.analyze_finality_causes.outputs.likely_causes) > 0 ? tasks.analyze_finality_causes.outputs.likely_causes[0] : 'finality degradation') : tasks.investigate_generic.outputs.suspected_root_cause }}"
+  evidence: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? tasks.assess_finality.outputs.evidence : tasks.investigate_generic.outputs.evidence }}"
+  instance_reports: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? (size(tasks.analyze_finality_causes.outputs.instance_reports) > 0 ? tasks.analyze_finality_causes.outputs.instance_reports : tasks.baseline.outputs.instance_reports) : tasks.investigate_generic.outputs.instance_reports }}"
+  log_examples: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? tasks.analyze_finality_causes.outputs.log_examples : tasks.investigate_generic.outputs.log_examples }}"
+  recommended_actions: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? tasks.analyze_finality_causes.outputs.recommended_actions : tasks.investigate_generic.outputs.recommended_actions }}"
+  severity: ${{ tasks.conclude.outputs.severity }}
+  summary: ${{ tasks.conclude.outputs.summary }}
