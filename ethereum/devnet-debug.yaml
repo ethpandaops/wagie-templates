@@ -106,13 +106,19 @@ tasks:
 
       Use the `panda` binary as the primary tool surface for this task.
 
-      Consider these categories:
-      - low participation
-      - offline or isolated nodes
-      - network split or fork disagreement
-      - client-specific bug
-      - execution-side issue affecting consensus progress
-      - transient condition that is already recovering
+      Finality thresholds:
+      - Finality requires >66.7% (2/3) of stake attesting.
+      - Normal finality lag: 2 epochs.
+      - Concern: >4 epochs without finality.
+      - Critical: >8 epochs without finality.
+
+      Consider these cause categories:
+      - Low participation: too few validators attesting to cross the 2/3 threshold.
+      - Offline or isolated nodes: nodes not participating due to crash, network partition, or misconfiguration.
+      - Network split or fork disagreement: validators attesting on different forks, diluting effective participation.
+      - Client-specific bug: a single client type failing causes all its validators to miss.
+      - Execution-side issue affecting consensus progress: EL errors blocking CL from processing payloads.
+      - Transient condition that is already recovering: participation improving epoch-over-epoch.
 
       Use available CL metrics first, then logs, then direct node validation when needed.
       Return likely causes ordered from strongest to weakest, plus practical operator actions.
@@ -210,16 +216,48 @@ tasks:
 
       Use the `panda` binary as the primary tool surface for this task.
 
+      CL-first investigation priority: the network moves forward via the CL — block proposals, attestations, and finality are all CL concerns. Most devnet issues originate at the CL level. Always investigate CL before EL.
+
       Investigation guidance:
-      - For network-split, compare fork views, divergence timing, and client or instance clustering.
+      - For network-split, compare fork views, divergence timing, and client or instance clustering. Identify the divergence slot/epoch. Examine the first block where forks diverge — what is special about that block?
       - For offline-nodes, confirm whether nodes are actually unreachable, syncing, isolated, or merely absent from logs.
       - For finality-delay, correlate participation health, missed slots, and checkpoint disagreement.
       - For client-bug or execution-issue, compare CL and EL evidence and look for shared patterns by client type.
-      - When Loki is available, start with high-signal CL logs, then inspect EL logs only if CL evidence points there.
-      - When ethnode is available, use direct RPC validation to confirm or falsify the leading hypothesis.
-      - Use full resolved instance names in findings, not shortened labels.
-      - Include concrete log excerpts or RPC observations when they materially support the diagnosis.
-      - Prefer evidence that tells an operator exactly which instance, client, or subsystem to inspect next.
+
+      Hypothesis testing:
+      - Did the problem start at a specific slot/epoch correlating with a config change, fork boundary, or deployment?
+      - Are affected nodes in the same region or infrastructure?
+      - Does the error message match a known client issue?
+
+      Log investigation (when Loki is available):
+      - Always use label filters in LogQL queries; unfiltered queries may time out.
+      - Query patterns depend on the Loki schema (from `data_profile.loki_schema`):
+        * **ethpandaops** (remote): `{testnet="<network>", ethereum_cl="<cl_type>", instance="<instance_name>"} |~ "(?i)(CRIT|ERR)" | json | line_format "{{.message}}"`. Message field fallback: if `{{.message}}` is empty, try `{{.log}}` or `{{.msg}}`. As a last resort, drop `| json | line_format` and use raw lines.
+        * **kurtosis** (local): stream labels (`job`, `service_name`) are shared across all services and cannot distinguish nodes. Use `| json` to parse, then filter on `kurtosis_service_name`. The log content is always in the `log` field. Example: `{job="kurtosis"} | json | kurtosis_service_name="cl-1-teku-geth" | log=~"(?i)(CRIT|ERR)" | line_format "{{.log}}"`. For broader queries: `{job="kurtosis"} | json | kurtosis_service_name=~"cl-.*" | log=~"(?i)(CRIT|ERR)" | line_format "{{.log}}"`.
+      - Log fallback when Loki is unavailable in local mode: use `kurtosis service logs <enclave> <service>` with `--regex-match "<pattern>"` for regex filtering, `--match "<string>"` for literal match, `-n <count>` for line limit, `-v` to invert filter.
+      - Log level escalation: start with CRIT/ERR logs from problematic CL nodes, then WARN, then INFO. Use DEBUG only as a last resort.
+      - EL escalation criteria: only inspect EL logs if CL logs show engine API errors, payload validation failures, or execution-related issues.
+      - CL/EL diagnostic matrix:
+        * CL errors only → consensus issue (investigate CL)
+        * CL engine API errors + EL errors → execution issue (investigate EL)
+        * CL clean + EL errors → EL struggling but not the primary cause
+        * Both layers erroring → shared dependency or cascade failure
+      - No-logs signal: if Loki returns no logs at all for a node, that is itself a signal. Verify via direct node query (ethnode for remote, localhost port for local) — if the node responds, it runs but is not logging; if unreachable, it is down.
+      - Correlate log timestamps against Dora timeline (when Dora data is available): when did errors start relative to missed slots or participation drops? Do errors correlate with specific epochs or slots? Are errors from one client type or spread across multiple?
+
+      RPC validation (when ethnode or direct node access is available):
+      - Network split: compare head slots, head roots, and finality checkpoints across fork groups.
+      - Node stuck: check sync status and peer counts.
+      - Hypothesis testing: query the specific nodes implicated by the leading hypothesis.
+      - For local Kurtosis: query CL nodes via their localhost beacon API ports and EL nodes via their localhost JSON-RPC ports directly.
+
+      Root cause classification:
+      - By scope: single node, client-specific, network split, or widespread.
+      - By layer: CL vs EL.
+
+      Use full resolved instance names in findings, not shortened labels.
+      Include concrete log excerpts or RPC observations when they materially support the diagnosis.
+      Prefer evidence that tells an operator exactly which instance, client, or subsystem to inspect next.
     inputs:
       problem_statement: ${{ inputs.problem_statement }}
       focus: ${{ inputs.focus }}
@@ -315,13 +353,13 @@ tasks:
       Produce an operator-ready devnet debug summary.
 
       Structure:
-      1. What is happening now
-      2. Most likely root cause
-      3. Affected nodes, clients, or forks
-      4. Best supporting evidence
-      5. Recommended next steps
+      1. Symptoms: what is happening now (observable behavior).
+      2. Root cause: most likely root cause with the concrete evidence that supports it.
+      3. Affected scope: which nodes, clients, or forks are involved (use full instance names).
+      4. Dora links: include links to relevant epochs, slots, or validators when Dora data was available.
+      5. Suggested remediation: practical next steps — restart nodes, inspect a specific client, escalate to a client team, or continue observing.
 
-      Be direct and concise. This output should help a principal decide whether to restart nodes, inspect a specific client, escalate to a client team, or continue observing.
+      Be direct and concise. This output should help a principal decide the immediate next action.
     inputs:
       network_name: ${{ tasks.context.outputs.network_name }}
       problem_statement: ${{ inputs.problem_statement }}

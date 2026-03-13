@@ -41,15 +41,21 @@ inputs:
     schema:
       type: object
       properties:
+        mode:
+          type: string
+          enum: [local, remote]
         has_dora:
           type: boolean
         has_loki:
           type: boolean
         has_ethnode:
           type: boolean
-        investigation_mode:
+        has_direct_node_access:
+          type: boolean
+        loki_schema:
           type: string
-      required: [has_dora, has_loki, has_ethnode, investigation_mode]
+          enum: [ethpandaops, kurtosis]
+      required: [mode, has_dora, has_loki, has_ethnode, has_direct_node_access, loki_schema]
   notes_summary:
     type: string
     description: Optional high-signal notes summary for the devnet
@@ -71,9 +77,16 @@ tasks:
 
       Use the `panda` binary as the primary tool surface for this task.
 
+      Finality thresholds:
+      - Finality requires >66.7% (2/3) of stake attesting.
+      - Normal finality lag: 2 epochs.
+      - Concern: >4 epochs without finality.
+      - Critical: >8 epochs without finality.
+
       Priorities:
       - Use Dora first when available for finalized epoch, head epoch, participation rates, missed slots, and fork visibility.
-      - If Dora is unavailable and ethnode is available, compare finality checkpoints and sync status across instances directly.
+      - Head epoch caveat: the head epoch is still in progress and will show artificially low participation. Always start analysis from head epoch - 1.
+      - If Dora is unavailable and nodes are queryable (ethnode for remote, or direct localhost access for local Kurtosis), compare finality checkpoints and sync status across instances directly. Query `/eth/v1/beacon/states/head/finality_checkpoints` and `/eth/v1/node/syncing` on each CL node. Look for checkpoint disagreement.
       - If only Loki is available, infer likely finality blockers from CL error patterns and instance health.
       - Preserve note-derived expectations when they matter for interpreting the finality state.
 
