@@ -1,4 +1,4 @@
-name: wagie/devnet-baseline
+name: ethpandaops/devnet-baseline
 version: "1.0"
 description: >-
   Use when a workflow needs an initial Ethereum devnet state assessment; builds baseline observations and classifies the most likely issue type.

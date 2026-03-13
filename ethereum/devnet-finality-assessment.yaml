@@ -1,4 +1,4 @@
-name: wagie/devnet-finality-assessment
+name: ethpandaops/devnet-finality-assessment
 version: "1.0"
 description: >-
   Use when a workflow needs a structured Ethereum devnet finality assessment; gathers finality observations and classifies the current finality state.

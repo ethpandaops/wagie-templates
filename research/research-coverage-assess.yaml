@@ -1,4 +1,4 @@
-name: wagie/research-coverage-assess
+name: ethpandaops/research-coverage-assess
 version: "1.0"
 description: >-
   Use when accumulated research needs an explicit coverage decision; returns sufficiency state, remaining gaps, and a concise coverage summary.

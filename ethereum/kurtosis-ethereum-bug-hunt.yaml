@@ -1,4 +1,4 @@
-name: wagie/kurtosis-ethereum-bug-hunt
+name: ethpandaops/kurtosis-ethereum-bug-hunt
 version: "1.0"
 description: >-
   Use when a workflow needs to launch or inspect a Kurtosis Ethereum network and identify candidate bugs or anomalies for deeper follow-up.
@@ -87,7 +87,7 @@ inputs:
     description: Whether to remove the enclave after the hunt
 tasks:
   lifecycle:
-    uses: wagie/kurtosis-ethereum-network-lifecycle@1
+    uses: ethpandaops/kurtosis-ethereum-network-lifecycle@1
     session: true
     inputs:
       goal: ${{ inputs.goal }}
@@ -178,7 +178,7 @@ tasks:
 finally:
   cleanup_enclave:
     if: ${{ inputs.auto_cleanup == true && inputs.launch == true }}
-    uses: wagie/kurtosis-enclave-cleanup@1
+    uses: ethpandaops/kurtosis-enclave-cleanup@1
     inputs:
       enclave_name: ${{ inputs.enclave_name }}
       force: true

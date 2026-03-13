@@ -1,4 +1,4 @@
-name: wagie/desloppify-fix-apply
+name: ethpandaops/desloppify-fix-apply
 version: "1.0"
 description: >-
   Use when applying a code change for one desloppify finding; make the smallest

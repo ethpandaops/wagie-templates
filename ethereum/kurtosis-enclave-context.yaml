@@ -1,4 +1,4 @@
-name: wagie/kurtosis-enclave-context
+name: ethpandaops/kurtosis-enclave-context
 version: "1.0"
 description: >-
   Use when a workflow needs normalized Kurtosis enclave context; inspects enclave state, services, and reachable endpoints for follow-on debugging or validation.

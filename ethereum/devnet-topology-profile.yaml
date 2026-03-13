@@ -1,4 +1,4 @@
-name: wagie/devnet-topology-profile
+name: ethpandaops/devnet-topology-profile
 version: "1.0"
 description: >-
   Use when a config workflow needs a minimal participant topology derived from devnet notes and explicit hints; returns representative client pairs and config-relevant assumptions only.

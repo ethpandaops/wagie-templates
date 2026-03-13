@@ -1,4 +1,4 @@
-name: wagie/desloppify-scan-and-score
+name: ethpandaops/desloppify-scan-and-score
 version: "1.0"
 description: >-
   Use when assessing the current health state of a codebase; runs desloppify scan followed
@@ -27,7 +27,7 @@ inputs:
         type: string
 tasks:
   scan:
-    uses: wagie/desloppify-scan@1
+    uses: ethpandaops/desloppify-scan@1
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
@@ -41,7 +41,7 @@ tasks:
       languages_detected: languages_detected
   score:
     needs: [scan]
-    uses: wagie/desloppify-status@1
+    uses: ethpandaops/desloppify-status@1
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"

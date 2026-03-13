@@ -1,4 +1,4 @@
-name: wagie/desloppify-next
+name: ethpandaops/desloppify-next
 version: "1.0"
 description: >-
   Use when retrieving the next prioritized finding to fix from the desloppify work queue;

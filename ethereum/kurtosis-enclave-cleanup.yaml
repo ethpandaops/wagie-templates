@@ -1,4 +1,4 @@
-name: wagie/kurtosis-enclave-cleanup
+name: ethpandaops/kurtosis-enclave-cleanup
 version: "1.0"
 description: >-
   Use when a workflow needs to remove a Kurtosis enclave cleanly; tears down the enclave and summarizes the result.

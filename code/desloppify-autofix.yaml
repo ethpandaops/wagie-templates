@@ -1,4 +1,4 @@
-name: wagie/desloppify-autofix
+name: ethpandaops/desloppify-autofix
 version: "1.0"
 description: >-
   Use when `desloppify next` recommends a named auto-fixer; previews or applies the

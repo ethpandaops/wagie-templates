@@ -1,4 +1,4 @@
-name: wagie/devnet-context
+name: ethpandaops/devnet-context
 version: "1.0"
 description: >-
   Use when a workflow needs normalized Ethereum devnet context; resolves network or devnet-group identity, available observability surfaces, likely instance inventory, and an investigation timeframe.
@@ -21,7 +21,7 @@ inputs:
     description: Optional explicit notes URL override for the devnet
 tasks:
   notes:
-    uses: wagie/devnet-notes@1
+    uses: ethpandaops/devnet-notes@1
     inputs:
       network: ${{ inputs.network }}
       notes_url: "${{ has(inputs.notes_url) ? inputs.notes_url : '' }}"

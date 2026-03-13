@@ -1,4 +1,4 @@
-name: wagie/devnet-debug
+name: ethpandaops/devnet-debug
 version: "1.0"
 description: >-
   Use when an Ethereum devnet incident needs structured diagnosis; gathers network context, builds a baseline, investigates likely failure modes, validates hypotheses, and returns an operator-ready debug summary.
@@ -30,7 +30,7 @@ inputs:
         type: string
 tasks:
   context:
-    uses: wagie/devnet-context@1
+    uses: ethpandaops/devnet-context@1
     inputs:
       network: ${{ inputs.network }}
       timeframe: ${{ inputs.timeframe }}
@@ -48,7 +48,7 @@ tasks:
       notes_highlights: notes_highlights
   baseline:
     needs: [context]
-    uses: wagie/devnet-baseline@1
+    uses: ethpandaops/devnet-baseline@1
     inputs:
       problem_statement: ${{ inputs.problem_statement }}
       focus: ${{ inputs.focus }}
@@ -70,7 +70,7 @@ tasks:
   assess_finality:
     needs: [context, baseline]
     if: ${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' }}
-    uses: wagie/devnet-finality-assessment@1
+    uses: ethpandaops/devnet-finality-assessment@1
     inputs:
       network_name: ${{ tasks.context.outputs.network_name }}
       investigation_timeframe: ${{ tasks.context.outputs.investigation_timeframe }}

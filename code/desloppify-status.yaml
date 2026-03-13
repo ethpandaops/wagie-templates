@@ -1,4 +1,4 @@
-name: wagie/desloppify-status
+name: ethpandaops/desloppify-status
 version: "1.0"
 description: >-
   Use when checking current desloppify health scores for a codebase; returns composite

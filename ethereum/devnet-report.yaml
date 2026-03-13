@@ -1,4 +1,4 @@
-name: wagie/devnet-report
+name: ethpandaops/devnet-report
 version: "1.0"
 description: >-
   Use when a workflow needs a shareable Ethereum devnet incident report; renders structured debug outputs into concise markdown with instance-level findings and concrete evidence for operators and stakeholders.

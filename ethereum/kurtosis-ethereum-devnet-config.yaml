@@ -1,4 +1,4 @@
-name: wagie/kurtosis-ethereum-devnet-config
+name: ethpandaops/kurtosis-ethereum-devnet-config
 version: "1.0"
 description: >-
   Use when a workflow needs a Kurtosis ethereum-package configuration derived from an existing devnet or devnet-group profile while minimizing unnecessary participant multiplicity.
@@ -61,7 +61,7 @@ inputs:
     description: Kurtosis package reference to target
 tasks:
   devnet_notes:
-    uses: wagie/devnet-notes@1
+    uses: ethpandaops/devnet-notes@1
     inputs:
       network: ${{ inputs.devnet_name }}
     outputs:
@@ -71,7 +71,7 @@ tasks:
       notes_assumptions: assumptions
   topology_profile:
     needs: [devnet_notes]
-    uses: wagie/devnet-topology-profile@1
+    uses: ethpandaops/devnet-topology-profile@1
     inputs:
       devnet_name: ${{ inputs.devnet_name }}
       goal: "${{ has(inputs.goal) ? inputs.goal : '' }}"
@@ -89,7 +89,7 @@ tasks:
       fallback_pair_added: fallback_pair_added
   package_reference:
     needs: [topology_profile]
-    uses: wagie/kurtosis-ethereum-reference@1
+    uses: ethpandaops/kurtosis-ethereum-reference@1
     inputs:
       section: participants
       package_ref: ${{ inputs.package_ref }}

@@ -1,4 +1,4 @@
-name: wagie/desloppify-resolve
+name: ethpandaops/desloppify-resolve
 version: "1.0"
 description: >-
   Use when marking a desloppify queue item fixed after code changes; records the fix
