@@ -1,0 +1,45 @@
+name: wagie/kurtosis-enclave-file-download
+version: "1.0"
+description: >-
+  Use when a workflow needs a Kurtosis enclave file locally; downloads a named file such as genesis data or network configs.
+tags: ["atomic", "kurtosis", "ethereum", "ethpandaops", "files", "building-block", "type:atomic", "cap:tool-use"]
+inputs:
+  enclave_name:
+    type: string
+    required: true
+    description: Kurtosis enclave that owns the file
+  file_name:
+    type: string
+    required: true
+    description: Kurtosis file name to download
+  output_directory:
+    type: string
+    required: true
+    description: Local directory for the downloaded file
+tasks:
+  download_file:
+    worker: {match: "'tool-use' in capabilities"}
+    run: download-kurtosis-file
+    quality-gate: "${{ has(result.local_path) && size(result.local_path) > 0 }}"
+    instructions: |-
+      Download a named file from a Kurtosis enclave.
+
+      Use the `kurtosis` CLI as the primary tool surface for this task.
+      Prefer the standard file download flow and return the resolved local path.
+    inputs:
+      enclave_name: ${{ inputs.enclave_name }}
+      file_name: ${{ inputs.file_name }}
+      output_directory: ${{ inputs.output_directory }}
+    outputs:
+      local_path: ${{ result.local_path }}
+      summary: "${{ has(result.summary) ? result.summary : '' }}"
+      schema:
+        local_path:
+          type: string
+          description: Local path of the downloaded file
+        summary:
+          type: string
+          description: Short download summary
+outputs:
+  local_path: ${{ tasks.download_file.outputs.local_path }}
+  summary: ${{ tasks.download_file.outputs.summary }}

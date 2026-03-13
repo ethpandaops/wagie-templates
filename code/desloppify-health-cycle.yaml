@@ -1,0 +1,163 @@
+name: wagie/desloppify-health-cycle
+version: "1.0"
+description: >-
+  Use for an end-to-end desloppify improvement pass; scan and score the codebase,
+  optionally refresh subjective review, run native triage, fix queued findings, and
+  rescan against a target score.
+tags: ["type:domain", "desloppify", "code-quality", "flow:compose", "cap:reasoning", "cap:coding", "cap:tool-use"]
+inputs:
+  repo:
+    type: string
+    required: true
+    description: "Repository in owner/name format"
+  branch_name:
+    type: string
+    required: true
+    description: "Branch to improve"
+  state_json:
+    type: string
+    default: ""
+    description: "Serialized desloppify state to carry across the full cycle"
+  target_score:
+    type: number
+    default: 80
+    description: "Target overall score to aim for (0-100)"
+  max_fixes:
+    type: number
+    default: 15
+    description: "Maximum number of manual fixes per cycle"
+  exclusions:
+    type: array
+    default: []
+    description: "Directories to exclude from scanning"
+    schema:
+      type: array
+      items:
+        type: string
+  dimensions:
+    type: array
+    default: []
+    description: "Optional subset of review dimensions to refresh"
+    schema:
+      type: array
+      items:
+        type: string
+  skip_review:
+    type: boolean
+    default: false
+    description: "Skip the subjective review phase (objective scan only)"
+  max_triage_items:
+    type: number
+    default: 20
+    description: "Maximum items to include in triage plan"
+tasks:
+  initial_scan:
+    uses: wagie/desloppify-scan-and-score@1
+    inputs:
+      repo: "${{ inputs.repo }}"
+      branch_name: "${{ inputs.branch_name }}"
+      state_json: "${{ inputs.state_json }}"
+      exclusions: "${{ inputs.exclusions }}"
+    outputs:
+      findings_count: findings_count
+      state_json: state_json
+      tier_breakdown: tier_breakdown
+      languages_detected: languages_detected
+      overall_score: overall_score
+      strict_score: strict_score
+      open_count: open_count
+  review:
+    needs: [initial_scan]
+    if: "${{ inputs.skip_review != true }}"
+    uses: wagie/desloppify-review-pipeline@1
+    inputs:
+      repo: "${{ inputs.repo }}"
+      branch_name: "${{ inputs.branch_name }}"
+      state_json: "${{ tasks.initial_scan.outputs.state_json }}"
+      dimensions: "${{ inputs.dimensions }}"
+    outputs:
+      dimension_scores: dimension_scores
+      average_score: average_score
+      weakest_dimension: weakest_dimension
+      dimensions_assessed: dimensions_assessed
+      state_json: state_json
+  triage:
+    needs: [initial_scan, review]
+    uses: wagie/desloppify-triage@1
+    inputs:
+      repo: "${{ inputs.repo }}"
+      branch_name: "${{ inputs.branch_name }}"
+      state_json: "${{ has(tasks.review.outputs.state_json) ? tasks.review.outputs.state_json : tasks.initial_scan.outputs.state_json }}"
+      max_items: "${{ inputs.max_triage_items }}"
+    outputs:
+      plan_items: plan_items
+      total_planned: total_planned
+      triage_summary: triage_summary
+      state_json: state_json
+  fix:
+    needs: [triage]
+    uses: wagie/desloppify-fix-loop@1
+    inputs:
+      repo: "${{ inputs.repo }}"
+      branch_name: "${{ inputs.branch_name }}"
+      state_json: "${{ tasks.triage.outputs.state_json }}"
+      max_fixes: "${{ inputs.max_fixes }}"
+    outputs:
+      manual_fixes_completed: manual_fixes_completed
+      fix_log: fix_log
+      queue_empty: queue_empty
+      state_json: state_json
+  rescan:
+    needs: [fix]
+    uses: wagie/desloppify-scan-and-score@1
+    inputs:
+      repo: "${{ inputs.repo }}"
+      branch_name: "${{ inputs.branch_name }}"
+      state_json: "${{ tasks.fix.outputs.state_json }}"
+      exclusions: "${{ inputs.exclusions }}"
+    outputs:
+      findings_count: findings_count
+      state_json: state_json
+      overall_score: overall_score
+      strict_score: strict_score
+      open_count: open_count
+  target_check_final:
+    needs: [rescan]
+    uses: wagie/score-threshold-check@1
+    inputs:
+      score: "${{ tasks.rescan.outputs.overall_score }}"
+      threshold: "${{ inputs.target_score }}"
+    outputs:
+      met: met
+      reason: reason
+  summarize:
+    needs: [initial_scan, review, triage, fix, rescan, target_check_final]
+    worker:
+      match: "'reasoning' in skills"
+    run: summarize-health-cycle
+    quality-gate: "${{ has(result.summary) && has(result.score_delta) }}"
+    instructions: |-
+      Summarize one desloppify improvement cycle.
+      Highlight the starting score and open count, whether review was refreshed,
+      what triage decided, how many fixes completed, the final score/open count,
+      and the delta to the target.
+      Base the target outcome on `target_check_final`.
+    outputs:
+      score_delta: "${{ result.score_delta }}"
+      summary: "${{ result.summary }}"
+      recommendations: "${{ result.recommendations }}"
+      schema:
+        score_delta: { type: number }
+        summary: { type: string }
+        recommendations: { type: string }
+outputs:
+  initial_score: ${{ tasks.initial_scan.outputs.overall_score }}
+  final_score: ${{ tasks.rescan.outputs.overall_score }}
+  score_delta: ${{ tasks.summarize.outputs.score_delta }}
+  target_met: ${{ tasks.target_check_final.outputs.met }}
+  manual_fixes_completed: "${{ has(tasks.fix.outputs.manual_fixes_completed) ? tasks.fix.outputs.manual_fixes_completed : 0 }}"
+  summary: ${{ tasks.summarize.outputs.summary }}
+  recommendations: ${{ tasks.summarize.outputs.recommendations }}
+  weakest_dimension: "${{ has(tasks.review.outputs.weakest_dimension) ? tasks.review.outputs.weakest_dimension : '' }}"
+  remaining_open: ${{ tasks.rescan.outputs.open_count }}
+  state_json: ${{ tasks.rescan.outputs.state_json }}

@@ -1,0 +1,84 @@
+name: wagie/research-findings
+version: "1.0"
+description: >-
+  Use when a topic needs a typed batch of research findings; returns incremental findings focused on breadth first and then explicit gap closure.
+tags: ["atomic", "research", "findings", "building-block", "type:atomic", "cap:reasoning", "cap:research"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 2m
+inputs:
+  topic:
+    type: string
+    required: true
+    description: Topic to research
+  previous_findings:
+    type: array
+    default: []
+    description: Prior findings already established
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          claim:
+            type: string
+          evidence:
+            type: string
+          confidence:
+            type: number
+          contradictions:
+            type: string
+        required: [claim, evidence, confidence]
+  gaps:
+    type: array
+    default: []
+    description: Remaining questions or subtopics to address
+    schema:
+      type: array
+      items:
+        type: string
+tasks:
+  investigate:
+    worker: {match: "'research' in skills"}
+    run: research
+    quality-gate: "${{ has(result.findings) }}"
+    instructions: |
+      Produce a batch of research findings for the topic.
+
+      Rules:
+      - If previous_findings is empty, build a broad initial foundation
+      - If gaps are provided, prioritize filling those gaps specifically
+      - Do not repeat or restate previous findings
+      - Prefer fewer substantive findings over many thin findings
+      - Flag contradictions when relevant
+    inputs:
+      topic: "${{ inputs.topic }}"
+      previous_findings: "${{ inputs.previous_findings }}"
+      gaps: "${{ inputs.gaps }}"
+    outputs:
+      findings: "${{ result.findings }}"
+      schema:
+        findings:
+          type: array
+          items:
+            type: object
+            properties:
+              claim:
+                type: string
+              evidence:
+                type: string
+              confidence:
+                type: number
+              contradictions:
+                type: string
+            required: [claim, evidence, confidence]
+          description: Incremental research findings
+outputs:
+  findings: ${{ tasks.investigate.outputs.findings }}

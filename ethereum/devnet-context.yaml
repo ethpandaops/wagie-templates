@@ -1,0 +1,129 @@
+name: wagie/devnet-context
+version: "1.0"
+description: >-
+  Use when a workflow needs normalized Ethereum devnet context; resolves network or devnet-group identity, available observability surfaces, likely instance inventory, and an investigation timeframe.
+tags: ["atomic", "devnet", "ethereum", "ethpandaops", "debugging", "context", "building-block", "type:atomic", "flow:compose", "cap:reasoning", "cap:tool-use"]
+inputs:
+  network:
+    type: string
+    required: true
+    description: Target network or devnet name to investigate
+  timeframe:
+    type: string
+    default: past 1 hour
+    description: Requested investigation timeframe or epoch range
+  include_ci_surfaces:
+    type: boolean
+    default: true
+    description: Whether to include CI-adjacent observability hints such as cluster selection
+  notes_url:
+    type: string
+    description: Optional explicit notes URL override for the devnet
+tasks:
+  notes:
+    uses: wagie/devnet-notes@1
+    inputs:
+      network: ${{ inputs.network }}
+      notes_url: "${{ has(inputs.notes_url) ? inputs.notes_url : '' }}"
+    outputs:
+      notes_url: notes_url
+      notes_summary: notes_summary
+      highlights: highlights
+      assumptions: assumptions
+  collect_context:
+    needs: [notes]
+    run: collect-devnet-context
+    retry:
+      max: 2
+      on: [error, timeout, schema-validation, quality-gate]
+      backoff:
+        delay: 5s
+        factor: 2
+        max-delay: 30s
+        jitter: true
+      timeout: 2m
+    worker:
+      match: "'tool-use' in capabilities && 'reasoning' in skills"
+    quality-gate: "${{ has(result.network_name) && size(result.network_name) > 0 && has(result.investigation_timeframe) && size(result.investigation_timeframe) > 0 && has(result.data_profile) && has(result.summary) && size(result.summary) > 0 }}"
+    instructions: |-
+      Collect normalized context for a devnet debugging session.
+
+      Use the `panda` binary as the primary tool surface for this task.
+
+      Use the best available sources from the MCP environment:
+      - network resources such as networks://active, networks://all, and networks://{name}
+      - the resolved devnet notes when available
+      - Dora network listing when available
+      - Loki label discovery when available
+      - ethnode availability signals and examples when available
+
+      Required behavior:
+      1. Resolve the requested network. If the input looks like a devnet group, identify the most relevant concrete network or explain the ambiguity clearly.
+      2. Determine whether Dora, Loki, and ethnode appear available for this network.
+      3. Discover likely node instances when possible.
+      4. Normalize the active investigation timeframe. Preserve the user-provided timeframe when specific; otherwise default to a recent operational window.
+      5. Incorporate any high-signal notes context that affects client readiness, expected flags, or likely topology.
+      6. Summarize what evidence surfaces are available and what the next debugging step should rely on.
+    inputs:
+      network: ${{ inputs.network }}
+      timeframe: ${{ inputs.timeframe }}
+      include_ci_surfaces: ${{ inputs.include_ci_surfaces }}
+      notes_url: "${{ has(tasks.notes.outputs.notes_url) ? tasks.notes.outputs.notes_url : '' }}"
+      notes_summary: "${{ has(tasks.notes.outputs.notes_summary) ? tasks.notes.outputs.notes_summary : '' }}"
+      notes_highlights: "${{ has(tasks.notes.outputs.highlights) ? tasks.notes.outputs.highlights : [] }}"
+    outputs:
+      network_name: ${{ result.network_name }}
+      network_group: "${{ has(result.network_group) ? result.network_group : '' }}"
+      investigation_timeframe: ${{ result.investigation_timeframe }}
+      clusters: "${{ has(result.clusters) ? result.clusters : [] }}"
+      instances: "${{ has(result.instances) ? result.instances : [] }}"
+      data_profile: "${{ result.data_profile }}"
+      summary: ${{ result.summary }}
+      schema:
+        network_name:
+          type: string
+          description: Resolved concrete network name
+        network_group:
+          type: string
+          description: Devnet group when applicable
+        investigation_timeframe:
+          type: string
+          description: Normalized active investigation timeframe
+        clusters:
+          type: array
+          items:
+            type: string
+          description: Relevant observability clusters for the network
+        instances:
+          type: array
+          items:
+            type: string
+          description: Likely CL/EL instance names for the network
+        data_profile:
+          type: object
+          properties:
+            has_dora:
+              type: boolean
+            has_loki:
+              type: boolean
+            has_ethnode:
+              type: boolean
+            investigation_mode:
+              type: string
+          required: [has_dora, has_loki, has_ethnode, investigation_mode]
+          description: Available debugging surfaces and recommended mode
+        summary:
+          type: string
+          description: Concise debugging-context summary
+outputs:
+  network_name: ${{ tasks.collect_context.outputs.network_name }}
+  network_group: ${{ tasks.collect_context.outputs.network_group }}
+  investigation_timeframe: ${{ tasks.collect_context.outputs.investigation_timeframe }}
+  clusters: ${{ tasks.collect_context.outputs.clusters }}
+  instances: ${{ tasks.collect_context.outputs.instances }}
+  data_profile: ${{ tasks.collect_context.outputs.data_profile }}
+  summary: ${{ tasks.collect_context.outputs.summary }}
+  notes_url: ${{ tasks.notes.outputs.notes_url }}
+  notes_summary: ${{ tasks.notes.outputs.notes_summary }}
+  notes_highlights: ${{ tasks.notes.outputs.highlights }}
+  notes_assumptions: ${{ tasks.notes.outputs.assumptions }}

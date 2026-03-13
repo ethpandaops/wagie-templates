@@ -1,0 +1,84 @@
+name: wagie/research-coverage-assess
+version: "1.0"
+description: >-
+  Use when accumulated research needs an explicit coverage decision; returns sufficiency state, remaining gaps, and a concise coverage summary.
+tags: ["atomic", "research", "evaluation", "coverage", "building-block", "type:atomic", "cap:reasoning"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 2m
+inputs:
+  topic:
+    type: string
+    required: true
+    description: Topic being researched
+  depth:
+    type: string
+    required: true
+    description: Requested research depth
+  findings:
+    type: array
+    required: true
+    description: Accumulated findings to assess
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          claim:
+            type: string
+          evidence:
+            type: string
+          confidence:
+            type: number
+          contradictions:
+            type: string
+        required: [claim, evidence, confidence]
+tasks:
+  assess:
+    worker: {match: "'reasoning' in skills"}
+    run: assess-completeness
+    quality-gate: "${{ has(result.gaps) && has(result.summary) && size(result.summary) > 0 && has(result.completeness) }}"
+    instructions: |
+      Assess whether the current findings are sufficient for the requested depth.
+
+      Depth expectations:
+      - shallow: key facts and overview covered
+      - moderate: major subtopics covered with support
+      - deep: broad coverage, nuance, edge cases, and competing views
+
+      Rules:
+      - Return completeness as sufficient or insufficient
+      - Identify only substantive remaining gaps
+      - Stop when additional work would produce only marginal value
+    inputs:
+      topic: "${{ inputs.topic }}"
+      depth: "${{ inputs.depth }}"
+      findings: "${{ inputs.findings }}"
+    outputs:
+      completeness: "${{ result.completeness }}"
+      gaps: "${{ result.gaps }}"
+      summary: "${{ result.summary }}"
+      schema:
+        completeness:
+          type: string
+          enum: [insufficient, sufficient]
+          description: Whether the accumulated findings are sufficient
+        gaps:
+          type: array
+          items:
+            type: string
+          description: Remaining substantive knowledge gaps
+        summary:
+          type: string
+          description: Concise assessment of current research coverage
+outputs:
+  completeness: ${{ tasks.assess.outputs.completeness }}
+  gaps: ${{ tasks.assess.outputs.gaps }}
+  summary: ${{ tasks.assess.outputs.summary }}

@@ -1,0 +1,195 @@
+name: wagie/kurtosis-ethereum-config
+version: "1.0"
+description: >-
+  Use when a workflow needs an ethereum-package configuration; design a sensible minimal
+  `network_params.yaml` by default, or replicate an existing devnet profile when
+  `config_mode` is `devnet-profile`.
+tags: ["pattern", "kurtosis", "ethereum", "ethpandaops", "configuration", "building-block", "type:pattern", "flow:compose", "cap:reasoning", "cap:tool-use"]
+inputs:
+  goal:
+    type: string
+    required: true
+    description: Desired Kurtosis Ethereum network outcome
+  constraints:
+    type: string
+    description: Optional constraints or implementation preferences
+  example_hint:
+    type: string
+    description: Optional hint toward a CI example or package feature
+  package_ref:
+    type: string
+    default: github.com/ethpandaops/ethereum-package
+    description: Kurtosis package reference to target
+  config_mode:
+    type: string
+    default: minimal
+    description: Whether to design a sensible minimal config or derive one from an existing devnet profile
+    schema:
+      type: string
+      enum: [minimal, devnet-profile]
+  devnet_name:
+    type: string
+    description: Existing devnet or devnet-group name to model when `config_mode` is `devnet-profile`
+  client_type:
+    type: string
+    description: Optional client type to preserve explicitly in the generated config
+  image_hint:
+    type: string
+    description: Optional image or build hint to preserve explicitly in the generated config
+  client_pairs:
+    type: array
+    description: Optional explicit client-pair and image combinations to use as the primary participant topology input
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          el_type:
+            type: string
+          cl_type:
+            type: string
+          vc_type:
+            type: string
+          el_image:
+            type: string
+          cl_image:
+            type: string
+          vc_image:
+            type: string
+          el_extra_params:
+            type: array
+            items:
+              type: string
+          cl_extra_params:
+            type: array
+            items:
+              type: string
+          vc_extra_params:
+            type: array
+            items:
+              type: string
+          count:
+            type: number
+        required: [el_type, cl_type]
+tasks:
+  replicate_devnet_config:
+    if: ${{ inputs.config_mode == 'devnet-profile' }}
+    uses: wagie/kurtosis-ethereum-devnet-config@1
+    inputs:
+      devnet_name: "${{ has(inputs.devnet_name) ? inputs.devnet_name : '' }}"
+      goal: "${{ has(inputs.goal) ? inputs.goal : '' }}"
+      client_type: "${{ has(inputs.client_type) ? inputs.client_type : '' }}"
+      image_hint: "${{ has(inputs.image_hint) ? inputs.image_hint : '' }}"
+      client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
+      constraints: "${{ has(inputs.constraints) ? inputs.constraints : '' }}"
+      package_ref: ${{ inputs.package_ref }}
+    outputs:
+      resolved_network_name: resolved_network_name
+      resolved_network_group: resolved_network_group
+      config_yaml: config_yaml
+      config_summary: config_summary
+      assumptions: assumptions
+      effective_client_pairs: effective_client_pairs
+      fallback_pair_added: fallback_pair_added
+  design_minimal_config:
+    if: ${{ inputs.config_mode == 'minimal' }}
+    worker: {match: "'reasoning' in skills"}
+    run: design-kurtosis-ethereum-config
+    retry:
+      max: 2
+      on: [error, timeout, schema-validation, quality-gate]
+      backoff:
+        delay: 10s
+        factor: 2
+        max-delay: 1m
+        jitter: true
+      timeout: 5m
+    quality-gate: "${{ has(result.config_yaml) && size(result.config_yaml) > 0 && has(result.config_summary) && size(result.config_summary) > 0 && has(result.effective_client_pairs) && size(result.effective_client_pairs) >= 2 }}"
+    instructions: |-
+      Design a sensible minimal `network_params.yaml` for the ethpandaops ethereum-package.
+
+      Rules:
+      - Only include fields that differ from defaults.
+      - Prefer the shortest config that clearly satisfies the goal.
+      - Use `preset: minimal` only for explicit quick sanity checks.
+      - If the goal implies mainnet-like behavior, prefer `preset: mainnet` or equivalent explicit settings.
+      - If an example hint is provided, use it as a starting reference rather than copying it blindly.
+      - If explicit client pairs are provided, treat them as the primary participant topology input.
+      - Preserve explicit per-client extra params when they are provided and they matter to the intended reproduction, validation, or launch behavior.
+      - A valid minimal devnet config must still model at least two client pairs; never return fewer than two effective participant pairs.
+      - Default to the smallest participant topology that still preserves the relevant behavior while meeting the two-pair minimum.
+      - Collapse repeated identical client pairs, but only after preserving at least two distinct effective participant pairs.
+      - Preserve distinct client/image combinations that matter, but use `count: 1` for each unless the goal or constraints explicitly require multiplicity.
+      - If the caller provides fewer than two viable pairs, infer or add additional compatible fallback pairs until there are at least two effective participant pairs, and record that choice.
+      - Do not perform deep package or devnet discovery inside this step.
+    inputs:
+      goal: ${{ inputs.goal }}
+      constraints: "${{ has(inputs.constraints) ? inputs.constraints : '' }}"
+      example_hint: "${{ has(inputs.example_hint) ? inputs.example_hint : '' }}"
+      package_ref: ${{ inputs.package_ref }}
+      client_type: "${{ has(inputs.client_type) ? inputs.client_type : '' }}"
+      image_hint: "${{ has(inputs.image_hint) ? inputs.image_hint : '' }}"
+      client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
+    outputs:
+      config_yaml: ${{ result.config_yaml }}
+      config_summary: ${{ result.config_summary }}
+      inferred_features: "${{ has(result.inferred_features) ? result.inferred_features : [] }}"
+      effective_client_pairs: "${{ has(result.effective_client_pairs) ? result.effective_client_pairs : [] }}"
+      fallback_pair_added: "${{ has(result.fallback_pair_added) ? result.fallback_pair_added : false }}"
+      schema:
+        config_yaml:
+          type: string
+          description: Minimal ethereum-package configuration in YAML
+        config_summary:
+          type: string
+          description: Short summary of why the configuration matches the goal
+        inferred_features:
+          type: array
+          items:
+            type: string
+          description: Key package features or knobs used in the design
+        effective_client_pairs:
+          type: array
+          items:
+            type: object
+            properties:
+              el_type:
+                type: string
+              cl_type:
+                type: string
+              vc_type:
+                type: string
+              el_image:
+                type: string
+              cl_image:
+                type: string
+              vc_image:
+                type: string
+              el_extra_params:
+                type: array
+                items:
+                  type: string
+              cl_extra_params:
+                type: array
+                items:
+                  type: string
+              vc_extra_params:
+                type: array
+                items:
+                  type: string
+              count:
+                type: number
+            required: [el_type, cl_type]
+          description: Effective participant pairs used in the generated config; minimal mode must return at least two pairs
+        fallback_pair_added:
+          type: boolean
+          description: Whether one or more fallback client pairs were added to reach a viable minimal topology
+outputs:
+  resolved_network_name: "${{ has(tasks.replicate_devnet_config.outputs.resolved_network_name) ? tasks.replicate_devnet_config.outputs.resolved_network_name : '' }}"
+  resolved_network_group: "${{ has(tasks.replicate_devnet_config.outputs.resolved_network_group) ? tasks.replicate_devnet_config.outputs.resolved_network_group : '' }}"
+  config_yaml: "${{ has(tasks.replicate_devnet_config.outputs.config_yaml) ? tasks.replicate_devnet_config.outputs.config_yaml : tasks.design_minimal_config.outputs.config_yaml }}"
+  config_summary: "${{ has(tasks.replicate_devnet_config.outputs.config_summary) ? tasks.replicate_devnet_config.outputs.config_summary : tasks.design_minimal_config.outputs.config_summary }}"
+  inferred_features: "${{ has(tasks.design_minimal_config.outputs.inferred_features) ? tasks.design_minimal_config.outputs.inferred_features : [] }}"
+  effective_client_pairs: "${{ has(tasks.replicate_devnet_config.outputs.effective_client_pairs) ? tasks.replicate_devnet_config.outputs.effective_client_pairs : tasks.design_minimal_config.outputs.effective_client_pairs }}"
+  fallback_pair_added: "${{ has(tasks.replicate_devnet_config.outputs.fallback_pair_added) ? tasks.replicate_devnet_config.outputs.fallback_pair_added : tasks.design_minimal_config.outputs.fallback_pair_added }}"
+  devnet_assumptions: "${{ has(tasks.replicate_devnet_config.outputs.assumptions) ? tasks.replicate_devnet_config.outputs.assumptions : [] }}"

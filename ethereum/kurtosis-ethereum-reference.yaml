@@ -1,0 +1,72 @@
+name: wagie/kurtosis-ethereum-reference
+version: "1.0"
+description: >-
+  Use when a workflow needs targeted ethereum-package reference material; retrieves the specific config, client, service, fork, or example information needed for a Kurtosis task.
+tags: ["atomic", "kurtosis", "ethereum", "ethpandaops", "reference", "building-block", "type:atomic", "cap:reasoning", "cap:tool-use"]
+defaults:
+  retry:
+    max: 2
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 30s
+      jitter: true
+    timeout: 2m
+inputs:
+  section:
+    type: string
+    required: true
+    description: Reference section to retrieve
+    schema:
+      type: string
+      enum: [clients, participants, network, forks, mev, services, sections, search, example, examples]
+  query:
+    type: string
+    description: Search term or example name when required by the selected section
+  package_ref:
+    type: string
+    default: github.com/ethpandaops/ethereum-package
+    description: Kurtosis package reference to inspect
+tasks:
+  fetch_reference:
+    worker: {match: "'reasoning' in skills && 'tool-use' in capabilities"}
+    run: fetch-kurtosis-ethereum-reference
+    quality-gate: "${{ has(result.reference_markdown) && size(result.reference_markdown) > 0 }}"
+    instructions: |-
+      Retrieve targeted reference material for the ethpandaops ethereum-package.
+
+      Use the most relevant repo-local package references when available, especially:
+      - `.github/tests/*` example configs
+      - the package README
+      - package configuration sources and defaults
+
+      Behavior:
+      - Fetch only the material relevant to the requested section.
+      - If the section requires a query, use it exactly and fail clearly if it is missing.
+      - Prefer concise, operator-usable output rather than dumping every possible field.
+      - Preserve exact field names, supported values, and example names where they matter.
+    inputs:
+      section: ${{ inputs.section }}
+      query: "${{ has(inputs.query) ? inputs.query : '' }}"
+      package_ref: ${{ inputs.package_ref }}
+    outputs:
+      reference_markdown: ${{ result.reference_markdown }}
+      reference_summary: "${{ has(result.reference_summary) ? result.reference_summary : result.reference_markdown }}"
+      extracted_items: "${{ has(result.extracted_items) ? result.extracted_items : [] }}"
+      schema:
+        reference_markdown:
+          type: string
+          description: Targeted reference material for the requested section
+        reference_summary:
+          type: string
+          description: Short summary of the most relevant reference points
+        extracted_items:
+          type: array
+          items:
+            type: string
+          description: Key values, field names, or example identifiers extracted from the reference
+outputs:
+  reference_markdown: ${{ tasks.fetch_reference.outputs.reference_markdown }}
+  reference_summary: ${{ tasks.fetch_reference.outputs.reference_summary }}
+  extracted_items: ${{ tasks.fetch_reference.outputs.extracted_items }}

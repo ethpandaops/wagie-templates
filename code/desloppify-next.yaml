@@ -1,0 +1,74 @@
+name: wagie/desloppify-next
+version: "1.0"
+description: >-
+  Use when retrieving the next prioritized finding to fix from the desloppify work queue;
+  returns file path, description, and exact resolve command.
+tags: ["type:atomic", "desloppify", "code-quality", "queue", "cap:tool-use"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff: { delay: 5s, factor: 2, max-delay: 20s, jitter: true }
+    timeout: 2m
+inputs:
+  repo:
+    type: string
+    required: true
+    description: "Repository in owner/name format"
+  branch_name:
+    type: string
+    required: true
+    description: "Branch whose queued findings should be read"
+  state_json:
+    type: string
+    default: ""
+    description: "Serialized desloppify state to materialize locally before running"
+  count:
+    type: number
+    default: 1
+    description: "Number of items to retrieve from the queue"
+tasks:
+  get_next:
+    worker:
+      match: "'tool-use' in capabilities"
+    run: desloppify-next
+    quality-gate: "${{ has(result.items) }}"
+    instructions: |-
+      Clone or reuse `repo`, fetch `origin/branch_name`, and checkout the branch before
+      invoking desloppify.
+      If `state_json` is provided, write it to a temporary state file and pass `--state`
+      to the upstream command. After the command finishes, read the active state file and
+      return it as `state_json`.
+      Run `desloppify next`, adding `--count` when `count` is greater than 1.
+      Parse the queue entries into structured finding data and include the exact
+      resolve command shown by desloppify.
+    inputs:
+      repo: "${{ inputs.repo }}"
+      branch_name: "${{ inputs.branch_name }}"
+      state_json: "${{ inputs.state_json }}"
+      count: "${{ inputs.count }}"
+    outputs:
+      items: "${{ result.items }}"
+      queue_remaining: "${{ result.queue_remaining }}"
+      queue_empty: "${{ result.queue_empty }}"
+      state_json: "${{ result.state_json }}"
+      schema:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              finding_id: { type: string }
+              file_path: { type: string }
+              detector: { type: string }
+              description: { type: string }
+              tier: { type: string }
+              resolve_command: { type: string }
+        queue_remaining: { type: number }
+        queue_empty: { type: boolean }
+        state_json: { type: string }
+outputs:
+  items: ${{ tasks.get_next.outputs.items }}
+  queue_remaining: ${{ tasks.get_next.outputs.queue_remaining }}
+  queue_empty: ${{ tasks.get_next.outputs.queue_empty }}
+  state_json: ${{ tasks.get_next.outputs.state_json }}

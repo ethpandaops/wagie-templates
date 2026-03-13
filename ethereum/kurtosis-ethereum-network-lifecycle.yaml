@@ -1,0 +1,345 @@
+name: wagie/kurtosis-ethereum-network-lifecycle
+version: "1.0"
+description: >-
+  Use when a workflow needs a single-session Kurtosis Ethereum network lifecycle; designs config, launches the enclave, inspects it, optionally validates it over an observation window, summarizes the result, and cleans up when requested.
+tags: ["pattern", "kurtosis", "ethereum", "ethpandaops", "devnet", "validation", "building-block", "type:pattern", "flow:compose", "cap:reasoning", "cap:tool-use"]
+inputs:
+  goal:
+    type: string
+    required: true
+    description: Desired network outcome
+  enclave_name:
+    type: string
+    required: true
+    description: Kurtosis enclave name to create or inspect
+  constraints:
+    type: string
+    description: Optional constraints or implementation preferences
+  example_hint:
+    type: string
+    description: Optional CI example or feature hint
+  package_ref:
+    type: string
+    default: github.com/ethpandaops/ethereum-package
+    description: Kurtosis package reference to run
+  config_mode:
+    type: string
+    default: minimal
+    description: Whether to design a sensible minimal config or replicate an existing devnet profile
+    schema:
+      type: string
+      enum: [minimal, devnet-profile]
+  observation_window:
+    type: string
+    default: 0 epochs
+    description: Optional post-launch observation window before producing the final summary; use 0 to skip waiting
+  success_criteria:
+    type: string
+    description: Optional explicit stability or validation criteria to apply during observation
+  devnet_name:
+    type: string
+    description: Existing devnet or devnet-group name to model when `config_mode` is `devnet-profile`
+  client_type:
+    type: string
+    description: Optional client type to preserve explicitly in the generated config
+  image_hint:
+    type: string
+    description: Optional image or build hint to preserve explicitly in the generated config
+  client_pairs:
+    type: array
+    description: Optional explicit client-pair and image combinations to pass through to config design
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          el_type:
+            type: string
+          cl_type:
+            type: string
+          vc_type:
+            type: string
+          el_image:
+            type: string
+          cl_image:
+            type: string
+          vc_image:
+            type: string
+          el_extra_params:
+            type: array
+            items:
+              type: string
+          cl_extra_params:
+            type: array
+            items:
+              type: string
+          vc_extra_params:
+            type: array
+            items:
+              type: string
+          count:
+            type: number
+        required: [el_type, cl_type]
+  launch:
+    type: boolean
+    default: true
+    description: Whether to launch the network after designing config
+  auto_cleanup:
+    type: boolean
+    default: true
+    description: Whether to always remove the enclave in finally cleanup
+tasks:
+  design_config:
+    uses: wagie/kurtosis-ethereum-config@1
+    inputs:
+      goal: ${{ inputs.goal }}
+      constraints: "${{ has(inputs.constraints) ? inputs.constraints : '' }}"
+      example_hint: "${{ has(inputs.example_hint) ? inputs.example_hint : '' }}"
+      package_ref: ${{ inputs.package_ref }}
+      config_mode: ${{ inputs.config_mode }}
+      devnet_name: "${{ has(inputs.devnet_name) ? inputs.devnet_name : '' }}"
+      client_type: "${{ has(inputs.client_type) ? inputs.client_type : '' }}"
+      image_hint: "${{ has(inputs.image_hint) ? inputs.image_hint : '' }}"
+      client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
+    outputs:
+      resolved_network_name: resolved_network_name
+      resolved_network_group: resolved_network_group
+      config_yaml: config_yaml
+      config_summary: config_summary
+      inferred_features: inferred_features
+      devnet_assumptions: devnet_assumptions
+      effective_client_pairs: effective_client_pairs
+      fallback_pair_added: fallback_pair_added
+  launch_network:
+    needs: [design_config]
+    if: ${{ inputs.launch == true }}
+    worker: {match: "'reasoning' in skills && 'tool-use' in capabilities"}
+    run: launch-kurtosis-ethereum-package
+    retry:
+      max: 1
+      on: [error, timeout, schema-validation, quality-gate]
+      backoff:
+        delay: 15s
+        factor: 2
+        max-delay: 1m
+        jitter: true
+      timeout: 10m
+    quality-gate: "${{ has(result.launch_summary) && size(result.launch_summary) > 0 }}"
+    instructions: |-
+      Launch the requested Ethereum network with Kurtosis.
+
+      Use the `kurtosis` CLI as the primary tool surface for this task.
+      Use the `panda` binary when you need to surface network or devnet information during launch preparation.
+
+      Requirements:
+      - Materialize the designed config as a local args file.
+      - Run the requested package reference with the provided enclave name.
+      - Prefer `--args-file` and `--image-download always`.
+      - If the package reference already points to a fork or branch, use it exactly as provided.
+      - Return the effective run command and a concise launch summary.
+    inputs:
+      enclave_name: ${{ inputs.enclave_name }}
+      package_ref: ${{ inputs.package_ref }}
+      config_yaml: ${{ tasks.design_config.outputs.config_yaml }}
+    outputs:
+      launch_summary: ${{ result.launch_summary }}
+      run_command: ${{ result.run_command }}
+      args_file_path: "${{ has(result.args_file_path) ? result.args_file_path : '' }}"
+      schema:
+        launch_summary:
+          type: string
+          description: Concise launch result summary
+        run_command:
+          type: string
+          description: Effective Kurtosis command used for launch
+        args_file_path:
+          type: string
+          description: Local path to the generated args file
+  inspect_enclave:
+    needs: [design_config, launch_network]
+    uses: wagie/kurtosis-enclave-context@1
+    inputs:
+      enclave_name: ${{ inputs.enclave_name }}
+      focus: post-launch
+      include_logs: false
+    outputs:
+      status_summary: status_summary
+      service_names: service_names
+      public_endpoints: public_endpoints
+      suggested_next_commands: suggested_next_commands
+  observe_network:
+    needs: [design_config, launch_network, inspect_enclave]
+    if: ${{ inputs.launch == true && inputs.observation_window != '0' && inputs.observation_window != '0 epochs' }}
+    worker: {match: "'reasoning' in skills && 'tool-use' in capabilities"}
+    run: validate-kurtosis-ethereum-network
+    retry:
+      max: 1
+      on: [error, timeout, schema-validation, quality-gate]
+      backoff:
+        delay: 10s
+        factor: 2
+        max-delay: 30s
+        jitter: true
+      timeout: 5m
+    quality-gate: "${{ has(result.validation_summary) && size(result.validation_summary) > 0 && has(result.stable) }}"
+    instructions: |-
+      Observe the launched Ethereum network over the requested observation window before writing the final operator summary.
+
+      Use the `kurtosis` CLI as the primary tool surface for this task.
+      Use the `panda` binary when you need to surface network or devnet information during observation.
+
+      Focus on:
+      - whether the network progresses over the window
+      - whether finality or expected health conditions appear
+      - whether obvious client, service, or enclave failures emerge
+      - validator participation health across the window
+      - proposed blocks and missed proposals when available
+      - missed attestations or equivalent attestation-health signals when available
+
+      Return a concise observation verdict with evidence, next actions, and structured metrics when available.
+    inputs:
+      enclave_name: ${{ inputs.enclave_name }}
+      observation_window: ${{ inputs.observation_window }}
+      success_criteria: "${{ has(inputs.success_criteria) ? inputs.success_criteria : '' }}"
+      goal: ${{ inputs.goal }}
+      config_summary: ${{ tasks.design_config.outputs.config_summary }}
+      launch_summary: ${{ tasks.launch_network.outputs.launch_summary }}
+      status_summary: ${{ tasks.inspect_enclave.outputs.status_summary }}
+      service_names: ${{ tasks.inspect_enclave.outputs.service_names }}
+      public_endpoints: ${{ tasks.inspect_enclave.outputs.public_endpoints }}
+    outputs:
+      stable: ${{ result.stable }}
+      validation_summary: ${{ result.validation_summary }}
+      finalized_epoch: "${{ has(result.finalized_epoch) ? result.finalized_epoch : 0 }}"
+      head_epoch: "${{ has(result.head_epoch) ? result.head_epoch : 0 }}"
+      participation_rate: "${{ has(result.participation_rate) ? result.participation_rate : 0 }}"
+      proposed_blocks: "${{ has(result.proposed_blocks) ? result.proposed_blocks : 0 }}"
+      missed_proposals: "${{ has(result.missed_proposals) ? result.missed_proposals : 0 }}"
+      missed_attestations: "${{ has(result.missed_attestations) ? result.missed_attestations : 0 }}"
+      evidence: "${{ has(result.evidence) ? result.evidence : [] }}"
+      recommended_actions: "${{ has(result.recommended_actions) ? result.recommended_actions : [] }}"
+      schema:
+        stable:
+          type: boolean
+          description: Whether the network appeared healthy across the observation window
+        validation_summary:
+          type: string
+          description: Concise observation summary
+        finalized_epoch:
+          type: number
+          description: Finalized epoch observed at the end of the window when available
+        head_epoch:
+          type: number
+          description: Head epoch observed at the end of the window when available
+        participation_rate:
+          type: number
+          description: Validator participation rate percentage when available
+        proposed_blocks:
+          type: number
+          description: Proposed blocks observed during the window when available
+        missed_proposals:
+          type: number
+          description: Missed proposal count observed during the window when available
+        missed_attestations:
+          type: number
+          description: Missed attestation count or equivalent missed-duty estimate when available
+        evidence:
+          type: array
+          items:
+            type: string
+          description: Supporting observations from the observation window
+        recommended_actions:
+          type: array
+          items:
+            type: string
+          description: Suggested follow-up actions after observation
+  summarize_result:
+    needs: [design_config, launch_network, inspect_enclave, observe_network]
+    worker: {match: "'reasoning' in skills"}
+    run: summarize-kurtosis-ethereum-network
+    retry:
+      max: 1
+      on: [error, timeout, schema-validation, quality-gate]
+      backoff:
+        delay: 5s
+        factor: 2
+        max-delay: 20s
+        jitter: true
+      timeout: 2m
+    quality-gate: "${{ has(result.summary) && size(result.summary) > 0 }}"
+    instructions: |-
+      Summarize the designed and launched Kurtosis Ethereum network for an operator.
+
+      Cover:
+      - what network was requested
+      - what configuration choices matter most
+      - whether launch happened successfully
+      - what happened during launch and immediate inspection
+      - what happened during the observation window when one was requested
+      - finalized/head epoch and participation health when available
+      - proposed blocks, missed proposals, and missed attestations when available
+      - what services and endpoints matter most next
+      - what the operator should do next
+    inputs:
+      goal: ${{ inputs.goal }}
+      enclave_name: ${{ inputs.enclave_name }}
+      observation_window: ${{ inputs.observation_window }}
+      config_summary: ${{ tasks.design_config.outputs.config_summary }}
+      inferred_features: ${{ tasks.design_config.outputs.inferred_features }}
+      launch_summary: "${{ has(tasks.launch_network.outputs.launch_summary) ? tasks.launch_network.outputs.launch_summary : 'launch not requested' }}"
+      status_summary: ${{ tasks.inspect_enclave.outputs.status_summary }}
+      observation_summary: "${{ has(tasks.observe_network.outputs.validation_summary) ? tasks.observe_network.outputs.validation_summary : 'observation not requested' }}"
+      finalized_epoch: "${{ has(tasks.observe_network.outputs.finalized_epoch) ? tasks.observe_network.outputs.finalized_epoch : 0 }}"
+      head_epoch: "${{ has(tasks.observe_network.outputs.head_epoch) ? tasks.observe_network.outputs.head_epoch : 0 }}"
+      participation_rate: "${{ has(tasks.observe_network.outputs.participation_rate) ? tasks.observe_network.outputs.participation_rate : 0 }}"
+      proposed_blocks: "${{ has(tasks.observe_network.outputs.proposed_blocks) ? tasks.observe_network.outputs.proposed_blocks : 0 }}"
+      missed_proposals: "${{ has(tasks.observe_network.outputs.missed_proposals) ? tasks.observe_network.outputs.missed_proposals : 0 }}"
+      missed_attestations: "${{ has(tasks.observe_network.outputs.missed_attestations) ? tasks.observe_network.outputs.missed_attestations : 0 }}"
+      observation_evidence: "${{ has(tasks.observe_network.outputs.evidence) ? tasks.observe_network.outputs.evidence : [] }}"
+      service_names: ${{ tasks.inspect_enclave.outputs.service_names }}
+      public_endpoints: ${{ tasks.inspect_enclave.outputs.public_endpoints }}
+      suggested_next_commands: "${{ has(tasks.observe_network.outputs.recommended_actions) && size(tasks.observe_network.outputs.recommended_actions) > 0 ? tasks.observe_network.outputs.recommended_actions : tasks.inspect_enclave.outputs.suggested_next_commands }}"
+    outputs:
+      summary: ${{ result.summary }}
+      schema:
+        summary:
+          type: string
+          description: Concise operator summary
+finally:
+  cleanup_enclave:
+    if: ${{ inputs.auto_cleanup == true && inputs.launch == true }}
+    uses: wagie/kurtosis-enclave-cleanup@1
+    inputs:
+      enclave_name: ${{ inputs.enclave_name }}
+      force: true
+    outputs:
+      removed: removed
+      summary: summary
+outputs:
+  resolved_network_name: ${{ tasks.design_config.outputs.resolved_network_name }}
+  resolved_network_group: ${{ tasks.design_config.outputs.resolved_network_group }}
+  config_yaml: ${{ tasks.design_config.outputs.config_yaml }}
+  config_summary: ${{ tasks.design_config.outputs.config_summary }}
+  inferred_features: ${{ tasks.design_config.outputs.inferred_features }}
+  devnet_assumptions: ${{ tasks.design_config.outputs.devnet_assumptions }}
+  effective_client_pairs: ${{ tasks.design_config.outputs.effective_client_pairs }}
+  fallback_pair_added: ${{ tasks.design_config.outputs.fallback_pair_added }}
+  launch_summary: "${{ has(tasks.launch_network.outputs.launch_summary) ? tasks.launch_network.outputs.launch_summary : 'launch not requested' }}"
+  run_command: "${{ has(tasks.launch_network.outputs.run_command) ? tasks.launch_network.outputs.run_command : '' }}"
+  args_file_path: "${{ has(tasks.launch_network.outputs.args_file_path) ? tasks.launch_network.outputs.args_file_path : '' }}"
+  status_summary: ${{ tasks.inspect_enclave.outputs.status_summary }}
+  service_names: ${{ tasks.inspect_enclave.outputs.service_names }}
+  public_endpoints: ${{ tasks.inspect_enclave.outputs.public_endpoints }}
+  suggested_next_commands: ${{ tasks.inspect_enclave.outputs.suggested_next_commands }}
+  stable: "${{ has(tasks.observe_network.outputs.stable) ? tasks.observe_network.outputs.stable : false }}"
+  validation_summary: "${{ has(tasks.observe_network.outputs.validation_summary) ? tasks.observe_network.outputs.validation_summary : '' }}"
+  observation_summary: "${{ has(tasks.observe_network.outputs.validation_summary) ? tasks.observe_network.outputs.validation_summary : '' }}"
+  finalized_epoch: "${{ has(tasks.observe_network.outputs.finalized_epoch) ? tasks.observe_network.outputs.finalized_epoch : 0 }}"
+  head_epoch: "${{ has(tasks.observe_network.outputs.head_epoch) ? tasks.observe_network.outputs.head_epoch : 0 }}"
+  participation_rate: "${{ has(tasks.observe_network.outputs.participation_rate) ? tasks.observe_network.outputs.participation_rate : 0 }}"
+  proposed_blocks: "${{ has(tasks.observe_network.outputs.proposed_blocks) ? tasks.observe_network.outputs.proposed_blocks : 0 }}"
+  missed_proposals: "${{ has(tasks.observe_network.outputs.missed_proposals) ? tasks.observe_network.outputs.missed_proposals : 0 }}"
+  missed_attestations: "${{ has(tasks.observe_network.outputs.missed_attestations) ? tasks.observe_network.outputs.missed_attestations : 0 }}"
+  observation_evidence: "${{ has(tasks.observe_network.outputs.evidence) ? tasks.observe_network.outputs.evidence : [] }}"
+  recommended_actions: "${{ has(tasks.observe_network.outputs.recommended_actions) ? tasks.observe_network.outputs.recommended_actions : [] }}"
+  summary: ${{ tasks.summarize_result.outputs.summary }}

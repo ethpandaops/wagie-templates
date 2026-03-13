@@ -1,0 +1,74 @@
+name: wagie/desloppify-autofix
+version: "1.0"
+description: >-
+  Use when `desloppify next` recommends a named auto-fixer; previews or applies the
+  upstream fixer for one mechanical issue class.
+tags: ["type:atomic", "desloppify", "code-quality", "autofix", "cap:tool-use"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff: { delay: 5s, factor: 2, max-delay: 20s, jitter: true }
+    timeout: 5m
+inputs:
+  repo:
+    type: string
+    required: true
+    description: "Repository in owner/name format"
+  branch_name:
+    type: string
+    required: true
+    description: "Branch where autofix changes should be committed and pushed"
+  state_json:
+    type: string
+    default: ""
+    description: "Serialized desloppify state to materialize locally before running"
+  dry_run:
+    type: boolean
+    default: false
+    description: "Preview fixes without applying them"
+  fixer:
+    type: string
+    required: true
+    description: "Named fixer to run"
+tasks:
+  autofix:
+    worker:
+      match: "'tool-use' in capabilities"
+    run: desloppify-autofix
+    quality-gate: "${{ has(result.fixes_applied) && result.fixes_applied >= 0 }}"
+    instructions: |-
+      Clone or reuse `repo`, fetch `origin/branch_name`, and checkout the branch before
+      invoking desloppify.
+      If `state_json` is provided, write it to a temporary state file and pass `--state`
+      to the upstream command. After the command finishes, read the active state file and
+      return it as `state_json`.
+      Run `desloppify autofix <fixer>` for the requested `fixer`, adding `--dry-run`
+      when requested.
+      If `dry_run` is false and fixes are applied, commit and push the resulting changes
+      to `origin/branch_name`, rebasing and retrying on push conflicts.
+      Capture what changed or would change.
+    inputs:
+      repo: "${{ inputs.repo }}"
+      branch_name: "${{ inputs.branch_name }}"
+      state_json: "${{ inputs.state_json }}"
+      dry_run: "${{ inputs.dry_run }}"
+      fixer: "${{ inputs.fixer }}"
+    outputs:
+      fixes_applied: "${{ result.fixes_applied }}"
+      files_modified: "${{ result.files_modified }}"
+      fixes_preview: "${{ result.fixes_preview }}"
+      commit_sha: "${{ result.commit_sha }}"
+      state_json: "${{ result.state_json }}"
+      schema:
+        fixes_applied: { type: number }
+        files_modified: { type: array, items: { type: string } }
+        fixes_preview: { type: array, items: { type: string } }
+        commit_sha: { type: string }
+        state_json: { type: string }
+outputs:
+  fixes_applied: ${{ tasks.autofix.outputs.fixes_applied }}
+  files_modified: ${{ tasks.autofix.outputs.files_modified }}
+  fixes_preview: ${{ tasks.autofix.outputs.fixes_preview }}
+  commit_sha: ${{ tasks.autofix.outputs.commit_sha }}
+  state_json: ${{ tasks.autofix.outputs.state_json }}

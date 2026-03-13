@@ -1,0 +1,172 @@
+name: wagie/devnet-baseline
+version: "1.0"
+description: >-
+  Use when a workflow needs an initial Ethereum devnet state assessment; builds baseline observations and classifies the most likely issue type.
+tags: ["pattern", "devnet", "ethereum", "ethpandaops", "debugging", "building-block", "type:pattern", "flow:compose", "cap:reasoning", "cap:tool-use"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 3m
+inputs:
+  problem_statement:
+    type: string
+    required: true
+    description: User-reported symptom or debugging goal
+  focus:
+    type: string
+    default: general
+    description: Optional focus such as split, offline-nodes, finality-delay, logs, or rpc-validation
+  network_name:
+    type: string
+    required: true
+    description: Resolved target devnet name
+  investigation_timeframe:
+    type: string
+    required: true
+    description: Active investigation timeframe
+  instances:
+    type: array
+    default: []
+    description: Specific instances to inspect first
+    schema:
+      type: array
+      items:
+        type: string
+  data_profile:
+    type: object
+    required: true
+    description: Available debugging surfaces and recommended mode
+    schema:
+      type: object
+      properties:
+        has_dora:
+          type: boolean
+        has_loki:
+          type: boolean
+        has_ethnode:
+          type: boolean
+        investigation_mode:
+          type: string
+      required: [has_dora, has_loki, has_ethnode, investigation_mode]
+  context_summary:
+    type: string
+    description: Normalized context summary from intake
+  notes_summary:
+    type: string
+    description: Optional high-signal notes summary for the devnet
+  notes_highlights:
+    type: array
+    default: []
+    description: Optional structured notes highlights worth preserving in baseline analysis
+    schema:
+      type: array
+      items:
+        type: string
+tasks:
+  observe:
+    worker: {match: "'tool-use' in capabilities && 'reasoning' in skills"}
+    run: baseline-devnet-state
+    quality-gate: "${{ has(result.baseline_summary) && size(result.baseline_summary) > 0 }}"
+    instructions: |-
+      Build an initial devnet baseline using the available surfaces.
+
+      Use the `panda` binary as the primary tool surface for this task.
+
+      Priorities:
+      - If Dora is available, use it to determine fork status, finality status, recent participation health, missed proposers, and likely offline nodes.
+      - If Dora is unavailable but ethnode is available, use direct node RPC to estimate head slots, finality checkpoints, and sync status across instances.
+      - If Loki is the only available source, use label discovery and high-signal log queries to build a best-effort baseline.
+      - When identifying instances, use the full resolved instance names, not shortened labels.
+      - When possible, return instance-level status notes that help an operator decide what to inspect next.
+
+      Produce a concise baseline summary plus concrete evidence and affected instances when they can be identified.
+      Preserve note-derived expectations when they matter for interpreting the network state.
+    inputs:
+      problem_statement: ${{ inputs.problem_statement }}
+      focus: ${{ inputs.focus }}
+      network_name: ${{ inputs.network_name }}
+      investigation_timeframe: ${{ inputs.investigation_timeframe }}
+      instances: ${{ inputs.instances }}
+      data_profile: ${{ inputs.data_profile }}
+      context_summary: "${{ has(inputs.context_summary) ? inputs.context_summary : '' }}"
+      notes_summary: "${{ has(inputs.notes_summary) ? inputs.notes_summary : '' }}"
+      notes_highlights: "${{ has(inputs.notes_highlights) ? inputs.notes_highlights : [] }}"
+    outputs:
+      baseline_summary: ${{ result.baseline_summary }}
+      affected_instances: "${{ has(result.affected_instances) ? result.affected_instances : [] }}"
+      baseline_evidence: "${{ has(result.baseline_evidence) ? result.baseline_evidence : [] }}"
+      instance_reports: "${{ has(result.instance_reports) ? result.instance_reports : [] }}"
+      schema:
+        baseline_summary:
+          type: string
+          description: Concise baseline summary of network state
+        affected_instances:
+          type: array
+          items:
+            type: string
+          description: Instances most likely involved in the incident
+        baseline_evidence:
+          type: array
+          items:
+            type: string
+          description: Concrete observations supporting the baseline
+        instance_reports:
+          type: array
+          items:
+            type: object
+            properties:
+              instance_name:
+                type: string
+              role:
+                type: string
+              client:
+                type: string
+              status:
+                type: string
+              summary:
+                type: string
+              evidence:
+                type: array
+                items:
+                  type: string
+            required: [instance_name, summary]
+          description: Instance-level status notes using full resolved instance names
+  classify_issue:
+    needs: [observe]
+    worker: {match: "'reasoning' in skills"}
+    run: classify-devnet-issue
+    quality-gate: "${{ has(result.suspected_issue_type) && size(result.suspected_issue_type) > 0 && result.confidence >= 0 && result.confidence <= 100 && has(result.reasoning) && size(result.reasoning) > 0 }}"
+    inputs:
+      problem_statement: ${{ inputs.problem_statement }}
+      focus: ${{ inputs.focus }}
+      baseline_summary: ${{ tasks.observe.outputs.baseline_summary }}
+      baseline_evidence: ${{ tasks.observe.outputs.baseline_evidence }}
+    outputs:
+      suspected_issue_type: ${{ result.suspected_issue_type }}
+      confidence: ${{ result.confidence }}
+      reasoning: ${{ result.reasoning }}
+      schema:
+        suspected_issue_type:
+          type: string
+          description: Most likely top-level devnet issue category
+          enum: [healthy, network-split, offline-nodes, finality-delay, client-bug, execution-issue, unknown]
+        confidence:
+          type: number
+          description: Confidence score from 0 to 100
+        reasoning:
+          type: string
+          description: Why this issue type best fits the baseline
+outputs:
+  suspected_issue_type: ${{ tasks.classify_issue.outputs.suspected_issue_type }}
+  issue_type_confidence: ${{ tasks.classify_issue.outputs.confidence }}
+  issue_type_reasoning: ${{ tasks.classify_issue.outputs.reasoning }}
+  baseline_summary: ${{ tasks.observe.outputs.baseline_summary }}
+  affected_instances: ${{ tasks.observe.outputs.affected_instances }}
+  baseline_evidence: ${{ tasks.observe.outputs.baseline_evidence }}
+  instance_reports: ${{ tasks.observe.outputs.instance_reports }}

@@ -1,0 +1,135 @@
+name: wagie/devnet-finality-assessment
+version: "1.0"
+description: >-
+  Use when a workflow needs a structured Ethereum devnet finality assessment; gathers finality observations and classifies the current finality state.
+tags: ["pattern", "devnet", "ethereum", "ethpandaops", "finality", "building-block", "type:pattern", "flow:compose", "cap:reasoning", "cap:tool-use"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 3m
+inputs:
+  network_name:
+    type: string
+    required: true
+    description: Resolved target devnet name
+  investigation_timeframe:
+    type: string
+    required: true
+    description: Active investigation timeframe
+  threshold_epochs:
+    type: number
+    default: 4
+    description: Epochs behind finality after which the situation is degraded
+  instances:
+    type: array
+    default: []
+    description: Specific instances to inspect first
+    schema:
+      type: array
+      items:
+        type: string
+  data_profile:
+    type: object
+    required: true
+    description: Available debugging surfaces and recommended mode
+    schema:
+      type: object
+      properties:
+        has_dora:
+          type: boolean
+        has_loki:
+          type: boolean
+        has_ethnode:
+          type: boolean
+        investigation_mode:
+          type: string
+      required: [has_dora, has_loki, has_ethnode, investigation_mode]
+  notes_summary:
+    type: string
+    description: Optional high-signal notes summary for the devnet
+  notes_highlights:
+    type: array
+    default: []
+    description: Optional structured notes highlights worth preserving in the assessment
+    schema:
+      type: array
+      items:
+        type: string
+tasks:
+  observe:
+    worker: {match: "'tool-use' in capabilities && 'reasoning' in skills"}
+    run: assess-devnet-finality
+    quality-gate: "${{ has(result.finality_summary) && size(result.finality_summary) > 0 }}"
+    instructions: |-
+      Assess the network's finality state using the best available sources.
+
+      Use the `panda` binary as the primary tool surface for this task.
+
+      Priorities:
+      - Use Dora first when available for finalized epoch, head epoch, participation rates, missed slots, and fork visibility.
+      - If Dora is unavailable and ethnode is available, compare finality checkpoints and sync status across instances directly.
+      - If only Loki is available, infer likely finality blockers from CL error patterns and instance health.
+      - Preserve note-derived expectations when they matter for interpreting the finality state.
+
+      Produce a concise finality summary, epochs-behind estimate, and supporting evidence.
+    inputs:
+      network_name: ${{ inputs.network_name }}
+      investigation_timeframe: ${{ inputs.investigation_timeframe }}
+      threshold_epochs: ${{ inputs.threshold_epochs }}
+      instances: ${{ inputs.instances }}
+      data_profile: ${{ inputs.data_profile }}
+      notes_summary: "${{ has(inputs.notes_summary) ? inputs.notes_summary : '' }}"
+      notes_highlights: "${{ has(inputs.notes_highlights) ? inputs.notes_highlights : [] }}"
+    outputs:
+      finality_summary: ${{ result.finality_summary }}
+      epochs_behind: "${{ has(result.epochs_behind) ? result.epochs_behind : 0 }}"
+      evidence: "${{ has(result.evidence) ? result.evidence : [] }}"
+      schema:
+        finality_summary:
+          type: string
+          description: Concise finality baseline summary
+        epochs_behind:
+          type: number
+          description: Estimated epochs behind finality
+        evidence:
+          type: array
+          items:
+            type: string
+          description: Observations supporting the finality assessment
+  classify_status:
+    needs: [observe]
+    worker: {match: "'reasoning' in skills"}
+    run: classify-devnet-finality-state
+    quality-gate: "${{ has(result.finality_status) && size(result.finality_status) > 0 && result.confidence >= 0 && result.confidence <= 100 && has(result.reasoning) && size(result.reasoning) > 0 }}"
+    inputs:
+      finality_summary: ${{ tasks.observe.outputs.finality_summary }}
+      epochs_behind: ${{ tasks.observe.outputs.epochs_behind }}
+      evidence: ${{ tasks.observe.outputs.evidence }}
+    outputs:
+      finality_status: ${{ result.finality_status }}
+      confidence: ${{ result.confidence }}
+      reasoning: ${{ result.reasoning }}
+      schema:
+        finality_status:
+          type: string
+          description: Current finality state classification
+          enum: [healthy, delayed, stalled, split-driven, unknown]
+        confidence:
+          type: number
+          description: Confidence score from 0 to 100
+        reasoning:
+          type: string
+          description: Why this finality state best fits the evidence
+outputs:
+  finality_status: ${{ tasks.classify_status.outputs.finality_status }}
+  finality_status_confidence: ${{ tasks.classify_status.outputs.confidence }}
+  finality_status_reasoning: ${{ tasks.classify_status.outputs.reasoning }}
+  finality_summary: ${{ tasks.observe.outputs.finality_summary }}
+  epochs_behind: ${{ tasks.observe.outputs.epochs_behind }}
+  evidence: ${{ tasks.observe.outputs.evidence }}

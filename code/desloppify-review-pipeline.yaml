@@ -1,0 +1,111 @@
+name: wagie/desloppify-review-pipeline
+version: "1.0"
+description: >-
+  Use when subjective dimensions need review; delegate to desloppify's native
+  `review --run-batches` workflow, then summarize the refreshed dimension scores.
+tags: ["type:pattern", "desloppify", "code-quality", "review", "flow:compose", "cap:reasoning", "cap:tool-use"]
+inputs:
+  repo:
+    type: string
+    required: true
+    description: "Repository in owner/name format"
+  branch_name:
+    type: string
+    required: true
+    description: "Branch whose review dimensions should be refreshed"
+  state_json:
+    type: string
+    default: ""
+    description: "Serialized desloppify state to materialize locally before running"
+  dimensions:
+    type: array
+    default: []
+    description: "Optional subset of dimensions to refresh"
+    schema:
+      type: array
+      items:
+        type: string
+  parallel:
+    type: boolean
+    default: true
+    description: "Run native review batches in parallel when supported"
+tasks:
+  review:
+    worker:
+      match: "'tool-use' in capabilities"
+    run: desloppify-review-pipeline
+    quality-gate: "${{ has(result.imported) }}"
+    instructions: |-
+      Clone or reuse `repo`, fetch `origin/branch_name`, and checkout the branch before
+      invoking desloppify.
+      If `state_json` is provided, write it to a temporary state file and pass `--state`
+      to the upstream review commands. After the review/import completes, read the active
+      state file and return it as `state_json`.
+      Run desloppify's native batch review flow with `--run-batches --runner codex`.
+      If `dimensions` is non-empty, pass them through with `--dimensions`.
+      If `parallel` is true, enable the upstream parallel mode.
+      Let desloppify prepare packets, run batches, merge results, and import them.
+      Return whether import succeeded and which dimensions were actually assessed.
+    inputs:
+      repo: "${{ inputs.repo }}"
+      branch_name: "${{ inputs.branch_name }}"
+      state_json: "${{ inputs.state_json }}"
+      dimensions: "${{ inputs.dimensions }}"
+      parallel: "${{ inputs.parallel }}"
+    outputs:
+      imported: "${{ result.imported }}"
+      dimensions_assessed: "${{ result.dimensions_assessed }}"
+      import_summary: "${{ result.import_summary }}"
+      state_json: "${{ result.state_json }}"
+      schema:
+        imported: { type: boolean }
+        dimensions_assessed: { type: array, items: { type: string } }
+        import_summary: { type: string }
+        state_json: { type: string }
+  status:
+    needs: [review]
+    uses: wagie/desloppify-status@1
+    inputs:
+      repo: "${{ inputs.repo }}"
+      branch_name: "${{ inputs.branch_name }}"
+      state_json: "${{ tasks.review.outputs.state_json }}"
+    outputs:
+      dimensions: dimensions
+      overall_score: overall_score
+      strict_score: strict_score
+      state_json: state_json
+  summarize_review:
+    needs: [review, status]
+    worker:
+      match: "'reasoning' in skills"
+    run: summarize-desloppify-review
+    quality-gate: "${{ has(result.dimension_scores) && has(result.average_score) && has(result.weakest_dimension) }}"
+    instructions: |-
+      Use the refreshed `status.dimensions` data and the dimensions assessed by the
+      review run to produce a compact review summary.
+      Prefer the assessed subset when available; otherwise summarize the full dimension map.
+    inputs:
+      dimensions: "${{ tasks.status.outputs.dimensions }}"
+      dimensions_assessed: "${{ tasks.review.outputs.dimensions_assessed }}"
+    outputs:
+      dimension_scores: "${{ result.dimension_scores }}"
+      average_score: "${{ result.average_score }}"
+      weakest_dimension: "${{ result.weakest_dimension }}"
+      schema:
+        dimension_scores:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              score: { type: number }
+        average_score: { type: number }
+        weakest_dimension: { type: string }
+outputs:
+  imported: ${{ tasks.review.outputs.imported }}
+  dimensions_assessed: ${{ tasks.review.outputs.dimensions_assessed }}
+  import_summary: ${{ tasks.review.outputs.import_summary }}
+  state_json: ${{ tasks.status.outputs.state_json }}
+  dimension_scores: ${{ tasks.summarize_review.outputs.dimension_scores }}
+  average_score: ${{ tasks.summarize_review.outputs.average_score }}
+  weakest_dimension: ${{ tasks.summarize_review.outputs.weakest_dimension }}
