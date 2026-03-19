@@ -38,7 +38,7 @@ make test
 make tidy
 ```
 
-`make test` validates this repo together with Wagie core templates from `../wagie` by default. Override with `WAGIE_CORE_DIR=/path/to/wagie` when needed.
+`make test` validates domain templates against core templates from wagie's embedded Go module.
 
 ## Template Work
 

@@ -9,23 +9,19 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout wagie-templates
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          path: wagie-templates
 
-      - name: Checkout wagie core
-        uses: actions/checkout@v4
-        with:
-          repository: ethpandaops/wagie
-          path: wagie
+      - name: Configure private Go modules
+        run: git config --global url."https://${{ secrets.GO_PRIVATE_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: wagie-templates/go.mod
-          cache-dependency-path: wagie-templates/go.sum
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
 
       - name: Run template validation
-        working-directory: wagie-templates
-        run: WAGIE_CORE_DIR="../wagie" go test -shuffle=on -v ./...
+        run: go test -shuffle=on -v ./...
+        env:
+          GOPRIVATE: github.com/ethpandaops/*

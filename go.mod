@@ -2,7 +2,7 @@ module github.com/ethpandaops/wagie-templates
 
 go 1.26.1
 
-require github.com/ethpandaops/wagie v0.0.0
+require github.com/ethpandaops/wagie v0.0.41
 
 require (
 	cel.dev/expr v0.25.1 // indirect
@@ -124,5 +124,3 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.46.1 // indirect
 )
-
-replace github.com/ethpandaops/wagie => ../wagie
