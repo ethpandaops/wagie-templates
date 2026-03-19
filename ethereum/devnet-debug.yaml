@@ -2,7 +2,7 @@ name: ethpandaops/devnet-debug
 version: "1.0"
 description: >-
   Use when an Ethereum devnet incident needs structured diagnosis; gathers network context, builds a baseline, investigates likely failure modes, validates hypotheses, and returns an operator-ready debug summary.
-tags: ["domain", "devnet", "ethereum", "ethpandaops", "debugging", "incident", "observability", "type:domain", "flow:compose", "cap:reasoning", "cap:tool-use"]
+tags: ["devnet", "ethereum", "ethpandaops", "debugging", "incident", "observability"]
 inputs:
   network:
     type: string
@@ -89,7 +89,7 @@ tasks:
   analyze_finality_causes:
     needs: [context, baseline, assess_finality]
     if: ${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' }}
-    worker: {match: "'tool-use' in capabilities && 'reasoning' in skills"}
+    worker: {match: "'tool-use' in capabilities && 'reasoning' in capabilities"}
     run: analyze-finality-causes
     retry:
       max: 1
@@ -199,7 +199,7 @@ tasks:
   investigate_generic:
     needs: [context, baseline]
     if: ${{ tasks.baseline.outputs.suspected_issue_type != 'finality-delay' }}
-    worker: {match: "'tool-use' in capabilities && 'reasoning' in skills"}
+    worker: {match: "'tool-use' in capabilities && 'reasoning' in capabilities"}
     run: investigate-devnet-incident
     retry:
       max: 1
@@ -337,7 +337,7 @@ tasks:
           description: Concrete log or RPC evidence examples supporting the diagnosis
   conclude:
     needs: [context, baseline, assess_finality, analyze_finality_causes, investigate_generic]
-    worker: {match: "'reasoning' in skills"}
+    worker: {match: "'reasoning' in capabilities"}
     run: summarize-devnet-debug
     retry:
       max: 1

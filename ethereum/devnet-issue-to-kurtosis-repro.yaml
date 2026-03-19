@@ -2,7 +2,7 @@ name: ethpandaops/devnet-issue-to-kurtosis-repro
 version: "1.0"
 description: >-
   Use when a workflow needs to investigate an active devnet issue and then reproduce it in Kurtosis using a config derived from that devnet profile and the implicated client or image hints.
-tags: ["domain", "devnet", "kurtosis", "ethereum", "ethpandaops", "reproduction", "debugging", "type:domain", "flow:compose", "flow:session", "cap:reasoning", "cap:tool-use"]
+tags: ["devnet", "kurtosis", "ethereum", "ethpandaops", "reproduction", "debugging"]
 inputs:
   devnet_name:
     type: string
@@ -98,7 +98,7 @@ tasks:
       summary: summary
   derive_repro_plan:
     needs: [debug_devnet]
-    worker: {match: "'reasoning' in skills"}
+    worker: {match: "'reasoning' in capabilities"}
     run: derive-devnet-repro-plan
     retry:
       max: 1
@@ -174,7 +174,7 @@ tasks:
       public_endpoints: public_endpoints
   reproduce_in_kurtosis:
     needs: [launch_in_kurtosis]
-    worker: {match: "'reasoning' in skills && 'tool-use' in capabilities"}
+    worker: {match: "'reasoning' in capabilities && 'tool-use' in capabilities"}
     run: reproduce-kurtosis-ethereum-bug
     retry:
       max: 1

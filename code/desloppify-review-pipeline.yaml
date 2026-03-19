@@ -3,7 +3,17 @@ version: "1.0"
 description: >-
   Use when subjective dimensions need review; delegate to desloppify's native
   `review --run-batches` workflow, then summarize the refreshed dimension scores.
-tags: ["type:pattern", "desloppify", "code-quality", "review", "flow:compose", "cap:reasoning", "cap:tool-use"]
+tags: ["desloppify", "code-quality", "review"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 2m
 inputs:
   repo:
     type: string
@@ -77,7 +87,7 @@ tasks:
   summarize_review:
     needs: [review, status]
     worker:
-      match: "'reasoning' in skills"
+      match: "'reasoning' in capabilities"
     run: summarize-desloppify-review
     quality-gate: "${{ has(result.dimension_scores) && has(result.average_score) && has(result.weakest_dimension) }}"
     instructions: |-

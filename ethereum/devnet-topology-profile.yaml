@@ -2,7 +2,17 @@ name: ethpandaops/devnet-topology-profile
 version: "1.0"
 description: >-
   Use when a config workflow needs a minimal participant topology derived from devnet notes and explicit hints; returns representative client pairs and config-relevant assumptions only.
-tags: ["building-block", "devnet", "ethereum", "configuration", "type:building-block", "flow:compose", "cap:reasoning"]
+tags: ["devnet", "ethereum", "configuration"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 2m
 inputs:
   devnet_name:
     type: string
@@ -74,7 +84,7 @@ inputs:
         type: string
 tasks:
   derive:
-    worker: {match: "'reasoning' in skills"}
+    worker: {match: "'reasoning' in capabilities"}
     run: derive-devnet-topology-profile
     quality-gate: "${{ has(result.profile_summary) && size(result.profile_summary) > 0 && has(result.effective_client_pairs) }}"
     instructions: |-

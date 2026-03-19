@@ -2,7 +2,7 @@ name: ethpandaops/devnet-context
 version: "1.0"
 description: >-
   Use when a workflow needs normalized Ethereum devnet context; resolves network or devnet-group identity, available observability surfaces, likely instance inventory, and an investigation timeframe.
-tags: ["atomic", "devnet", "ethereum", "ethpandaops", "debugging", "context", "building-block", "type:atomic", "flow:compose", "cap:reasoning", "cap:tool-use"]
+tags: ["devnet", "ethereum", "ethpandaops", "debugging", "context"]
 inputs:
   network:
     type: string
@@ -43,7 +43,7 @@ tasks:
         jitter: true
       timeout: 2m
     worker:
-      match: "'tool-use' in capabilities && 'reasoning' in skills"
+      match: "'tool-use' in capabilities && 'reasoning' in capabilities"
     quality-gate: "${{ has(result.network_name) && size(result.network_name) > 0 && has(result.investigation_timeframe) && size(result.investigation_timeframe) > 0 && has(result.data_profile) && has(result.summary) && size(result.summary) > 0 }}"
     instructions: |-
       Collect normalized context for a devnet debugging session.

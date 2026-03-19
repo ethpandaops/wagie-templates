@@ -2,7 +2,7 @@ name: ethpandaops/kurtosis-ethereum-bug-hunt
 version: "1.0"
 description: >-
   Use when a workflow needs to launch or inspect a Kurtosis Ethereum network and identify candidate bugs or anomalies for deeper follow-up.
-tags: ["domain", "kurtosis", "ethereum", "ethpandaops", "bug-hunt", "debugging", "type:domain", "flow:compose", "flow:session", "cap:reasoning", "cap:tool-use"]
+tags: ["kurtosis", "ethereum", "ethpandaops", "bug-hunt", "debugging"]
 inputs:
   goal:
     type: string
@@ -113,7 +113,7 @@ tasks:
       public_endpoints: public_endpoints
   hunt_bugs:
     needs: [lifecycle]
-    worker: {match: "'reasoning' in skills && 'tool-use' in capabilities"}
+    worker: {match: "'reasoning' in capabilities && 'tool-use' in capabilities"}
     run: hunt-kurtosis-ethereum-bugs
     retry:
       max: 1

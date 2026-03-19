@@ -2,7 +2,7 @@ name: ethpandaops/devnet-finality-assessment
 version: "1.0"
 description: >-
   Use when a workflow needs a structured Ethereum devnet finality assessment; gathers finality observations and classifies the current finality state.
-tags: ["pattern", "devnet", "ethereum", "ethpandaops", "finality", "building-block", "type:pattern", "flow:compose", "cap:reasoning", "cap:tool-use"]
+tags: ["devnet", "ethereum", "ethpandaops", "finality"]
 defaults:
   retry:
     max: 1
@@ -69,7 +69,7 @@ inputs:
         type: string
 tasks:
   observe:
-    worker: {match: "'tool-use' in capabilities && 'reasoning' in skills"}
+    worker: {match: "'tool-use' in capabilities && 'reasoning' in capabilities"}
     run: assess-devnet-finality
     quality-gate: "${{ has(result.finality_summary) && size(result.finality_summary) > 0 }}"
     instructions: |-
@@ -117,7 +117,7 @@ tasks:
           description: Observations supporting the finality assessment
   classify_status:
     needs: [observe]
-    worker: {match: "'reasoning' in skills"}
+    worker: {match: "'reasoning' in capabilities"}
     run: classify-devnet-finality-state
     quality-gate: "${{ has(result.finality_status) && size(result.finality_status) > 0 && result.confidence >= 0 && result.confidence <= 100 && has(result.reasoning) && size(result.reasoning) > 0 }}"
     inputs:

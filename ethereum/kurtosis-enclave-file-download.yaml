@@ -2,7 +2,17 @@ name: ethpandaops/kurtosis-enclave-file-download
 version: "1.0"
 description: >-
   Use when a workflow needs a Kurtosis enclave file locally; downloads a named file such as genesis data or network configs.
-tags: ["atomic", "kurtosis", "ethereum", "ethpandaops", "files", "building-block", "type:atomic", "cap:tool-use"]
+tags: ["kurtosis", "ethereum", "ethpandaops", "files"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 2m
 inputs:
   enclave_name:
     type: string
