@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,31 +13,27 @@ import (
 func TestTemplatesValidateAgainstCombinedLibrary(t *testing.T) {
 	t.Parallel()
 
-	coreRoot := os.Getenv("WAGIE_CORE_DIR")
-	if coreRoot == "" {
-		coreRoot = filepath.Join("..", "wagie")
-	}
-
-	coreTemplatesDir := filepath.Clean(filepath.Join(coreRoot, "templates"))
-	if _, err := os.Stat(coreTemplatesDir); err != nil {
-		t.Fatalf("core templates dir %s not available: %v", coreTemplatesDir, err)
+	coreFiles, err := wagie.CoreTemplateFiles()
+	if err != nil {
+		t.Fatalf("load core templates: %v", err)
 	}
 
 	dirs := []struct {
 		path   string
 		source string
 	}{
-		{path: coreTemplatesDir, source: "wagie-core"},
 		{path: "ethereum", source: "wagie-templates"},
 		{path: "code", source: "wagie-templates"},
 		{path: "research", source: "wagie-templates"},
 	}
 
-	files := make([]wagie.TemplateFile, 0, 64)
+	files := make([]wagie.TemplateFile, 0, len(coreFiles)+64)
+	files = append(files, coreFiles...)
+
 	for _, dir := range dirs {
-		loaded, err := wagie.LoadTemplateFilesRecursive(dir.path)
-		if err != nil {
-			t.Fatalf("load %s: %v", dir.path, err)
+		loaded, loadErr := wagie.LoadTemplateFilesRecursive(dir.path)
+		if loadErr != nil {
+			t.Fatalf("load %s: %v", dir.path, loadErr)
 		}
 
 		for _, file := range loaded {

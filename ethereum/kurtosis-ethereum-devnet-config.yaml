@@ -2,7 +2,7 @@ name: ethpandaops/kurtosis-ethereum-devnet-config
 version: "1.0"
 description: >-
   Use when a workflow needs a Kurtosis ethereum-package configuration derived from an existing devnet or devnet-group profile while minimizing unnecessary participant multiplicity.
-tags: ["pattern", "kurtosis", "ethereum", "ethpandaops", "devnet", "configuration", "building-block", "type:pattern", "flow:compose", "cap:reasoning", "cap:tool-use"]
+tags: ["kurtosis", "ethereum", "ethpandaops", "devnet", "configuration"]
 inputs:
   devnet_name:
     type: string
@@ -99,7 +99,7 @@ tasks:
       extracted_items: extracted_items
   derive_config:
     needs: [devnet_notes, topology_profile, package_reference]
-    worker: {match: "'reasoning' in skills"}
+    worker: {match: "'reasoning' in capabilities"}
     run: derive-kurtosis-ethereum-devnet-config
     retry:
       max: 2

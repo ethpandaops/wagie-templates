@@ -18,9 +18,9 @@ Templates in this repo should be specialized, domain-coupled, or operator-specif
 
 Keep generic core templates in the main Wagie repo, especially:
 
-- general atomic transforms like classify, extract, summarize, evaluate, answer, generate
-- generic orchestration patterns like consensus, map-reduce, review-loop, matrix evaluation, routing, and promotion
-- cross-domain building blocks that are broadly reusable outside one family
+- atomic cognitive primitives: decide, evaluate, extract, transform, summarize, generate
+- orchestration patterns: map-reduce, review-loop, self-consistency-jury
+- structural glue: promote-reject, evaluation-aggregate
 
 If a template can stand as a root-level composable primitive for many unrelated workflows, it probably belongs in core, not here.
 
@@ -38,7 +38,7 @@ make test
 make tidy
 ```
 
-`make test` validates this repo together with Wagie core templates from `../wagie` by default. Override with `WAGIE_CORE_DIR=/path/to/wagie` when needed.
+`make test` validates domain templates against core templates from wagie's embedded Go module.
 
 ## Template Work
 

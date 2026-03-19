@@ -3,7 +3,7 @@ version: "1.0"
 description: >-
   Use when marking a desloppify queue item fixed after code changes; records the fix
   with `desloppify plan resolve` using a concrete note.
-tags: ["type:atomic", "desloppify", "code-quality", "resolution", "cap:tool-use"]
+tags: ["desloppify", "code-quality", "resolution"]
 defaults:
   retry:
     max: 1

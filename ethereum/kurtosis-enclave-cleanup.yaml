@@ -2,7 +2,7 @@ name: ethpandaops/kurtosis-enclave-cleanup
 version: "1.0"
 description: >-
   Use when a workflow needs to remove a Kurtosis enclave cleanly; tears down the enclave and summarizes the result.
-tags: ["atomic", "kurtosis", "ethereum", "ethpandaops", "cleanup", "building-block", "type:atomic", "cap:tool-use"]
+tags: ["kurtosis", "ethereum", "ethpandaops", "cleanup"]
 inputs:
   enclave_name:
     type: string

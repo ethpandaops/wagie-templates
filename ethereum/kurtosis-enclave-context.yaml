@@ -2,7 +2,7 @@ name: ethpandaops/kurtosis-enclave-context
 version: "1.0"
 description: >-
   Use when a workflow needs normalized Kurtosis enclave context; inspects enclave state, services, and reachable endpoints for follow-on debugging or validation.
-tags: ["atomic", "kurtosis", "ethereum", "ethpandaops", "context", "building-block", "type:atomic", "cap:reasoning", "cap:tool-use"]
+tags: ["kurtosis", "ethereum", "ethpandaops", "context"]
 defaults:
   retry:
     max: 2
@@ -31,7 +31,7 @@ inputs:
     description: Whether to inspect targeted service logs during context collection
 tasks:
   inspect_enclave:
-    worker: {match: "'reasoning' in skills && 'tool-use' in capabilities"}
+    worker: {match: "'reasoning' in capabilities && 'tool-use' in capabilities"}
     run: inspect-kurtosis-enclave
     quality-gate: "${{ has(result.status_summary) && size(result.status_summary) > 0 && has(result.service_names) }}"
     instructions: |-

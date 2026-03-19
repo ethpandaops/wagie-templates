@@ -3,7 +3,7 @@ version: "1.0"
 description: >-
   Use when checking current desloppify health scores for a codebase; returns composite
   scores across all scoring modes and per-dimension breakdowns.
-tags: ["type:atomic", "desloppify", "code-quality", "scoring", "cap:tool-use"]
+tags: ["desloppify", "code-quality", "scoring"]
 defaults:
   retry:
     max: 1

@@ -2,7 +2,7 @@ name: ethpandaops/devnet-notes
 version: "1.0"
 description: >-
   Use when a workflow needs the canonical operator notes for an Ethereum devnet; resolves the expected notes URL, extracts the most relevant network setup guidance, and summarizes assumptions or gaps.
-tags: ["atomic", "devnet", "ethereum", "ethpandaops", "notes", "context", "building-block", "type:atomic", "cap:reasoning", "cap:tool-use"]
+tags: ["devnet", "ethereum", "ethpandaops", "notes", "context"]
 inputs:
   network:
     type: string
@@ -24,7 +24,7 @@ tasks:
         jitter: true
       timeout: 2m
     worker:
-      match: "'tool-use' in capabilities && 'reasoning' in skills"
+      match: "'tool-use' in capabilities"
     quality-gate: "${{ has(result.notes_url) && size(result.notes_url) > 0 && has(result.notes_summary) && size(result.notes_summary) > 0 }}"
     instructions: |-
       Resolve and summarize the canonical notes for the target devnet.

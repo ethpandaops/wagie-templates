@@ -3,7 +3,7 @@ version: "1.0"
 description: >-
   Use when retrieving the next prioritized finding to fix from the desloppify work queue;
   returns file path, description, and exact resolve command.
-tags: ["type:atomic", "desloppify", "code-quality", "queue", "cap:tool-use"]
+tags: ["desloppify", "code-quality", "queue"]
 defaults:
   retry:
     max: 1

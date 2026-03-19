@@ -2,7 +2,7 @@ name: ethpandaops/devnet-report
 version: "1.0"
 description: >-
   Use when a workflow needs a shareable Ethereum devnet incident report; renders structured debug outputs into concise markdown with instance-level findings and concrete evidence for operators and stakeholders.
-tags: ["pattern", "devnet", "ethereum", "ethpandaops", "reporting", "building-block", "type:pattern", "flow:compose", "cap:reasoning"]
+tags: ["devnet", "ethereum", "ethpandaops", "reporting"]
 defaults:
   retry:
     max: 1
@@ -119,7 +119,7 @@ inputs:
         type: string
 tasks:
   render_report:
-    worker: {match: "'reasoning' in skills"}
+    worker: {match: "'writing' in skills"}
     run: render-devnet-report
     quality-gate: "${{ has(result.report_markdown) && size(result.report_markdown) > 0 }}"
     instructions: |-

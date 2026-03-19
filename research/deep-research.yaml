@@ -2,7 +2,7 @@ name: ethpandaops/deep-research
 version: "1.0"
 description: >-
   Use when a topic requires iterative depth-building; accumulates typed finding batches, assesses coverage, and stops when explicit sufficiency is reached.
-tags: ["pattern", "research", "iterative", "deep-research", "type:pattern", "flow:loop", "flow:compose", "cap:reasoning", "cap:research"]
+tags: ["research", "iterative", "deep-research"]
 inputs:
   topic:
     type: string
@@ -44,7 +44,7 @@ tasks:
           findings: findings
       accumulate:
         needs: [investigate]
-        worker: {match: "'reasoning' in skills"}
+        worker: {match: "'reasoning' in capabilities"}
         run: accumulate-research-findings
         quality-gate: "${{ has(result.findings) }}"
         instructions: |-

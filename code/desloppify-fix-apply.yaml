@@ -3,7 +3,7 @@ version: "1.0"
 description: >-
   Use when applying a code change for one desloppify finding; make the smallest
   behavior-preserving fix, verify it, then commit and push it to the working branch.
-tags: ["type:atomic", "desloppify", "code-quality", "fix", "cap:coding", "cap:tool-use"]
+tags: ["desloppify", "code-quality", "fix"]
 defaults:
   retry:
     max: 1

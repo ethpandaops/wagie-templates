@@ -3,7 +3,7 @@ version: "1.0"
 description: >-
   Use when running static analysis on a codebase with desloppify; executes language-specific
   detectors and produces mechanical findings merged into persistent state.
-tags: ["type:atomic", "desloppify", "code-quality", "static-analysis", "cap:tool-use"]
+tags: ["desloppify", "code-quality", "static-analysis"]
 defaults:
   retry:
     max: 1

@@ -2,7 +2,7 @@ name: ethpandaops/research-coverage-assess
 version: "1.0"
 description: >-
   Use when accumulated research needs an explicit coverage decision; returns sufficiency state, remaining gaps, and a concise coverage summary.
-tags: ["atomic", "research", "evaluation", "coverage", "building-block", "type:atomic", "cap:reasoning"]
+tags: ["research", "evaluation", "coverage"]
 defaults:
   retry:
     max: 1
@@ -42,7 +42,7 @@ inputs:
         required: [claim, evidence, confidence]
 tasks:
   assess:
-    worker: {match: "'reasoning' in skills"}
+    worker: {match: "'reasoning' in capabilities"}
     run: assess-completeness
     quality-gate: "${{ has(result.gaps) && has(result.summary) && size(result.summary) > 0 && has(result.completeness) }}"
     instructions: |

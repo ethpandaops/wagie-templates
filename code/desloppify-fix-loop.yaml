@@ -4,7 +4,7 @@ description: >-
   Use when draining the planned desloppify queue; loop through `next`, apply one fix,
   record it with `plan resolve`, and continue until the queue is empty or the fix budget
   is exhausted.
-tags: ["type:pattern", "desloppify", "code-quality", "fix", "flow:compose", "flow:loop", "cap:coding", "cap:tool-use"]
+tags: ["desloppify", "code-quality", "fix"]
 inputs:
   repo:
     type: string
@@ -79,8 +79,9 @@ tasks:
       accumulate:
         needs: [get_next, mark_resolved]
         worker:
-          match: "'reasoning' in skills"
+          match: "'writing' in skills"
         run: accumulate-fix-state
+        quality-gate: "${{ has(result.fixes_completed) && has(result.queue_empty) && has(result.state_json) && size(result.state_json) > 0 }}"
         instructions: |-
           Update the loop state after one queue attempt.
           Increment `fixes_completed` only when the finding was resolved.

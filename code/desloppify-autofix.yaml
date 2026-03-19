@@ -3,7 +3,7 @@ version: "1.0"
 description: >-
   Use when `desloppify next` recommends a named auto-fixer; previews or applies the
   upstream fixer for one mechanical issue class.
-tags: ["type:atomic", "desloppify", "code-quality", "autofix", "cap:tool-use"]
+tags: ["desloppify", "code-quality", "autofix"]
 defaults:
   retry:
     max: 1

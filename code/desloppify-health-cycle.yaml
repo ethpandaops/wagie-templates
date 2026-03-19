@@ -4,7 +4,17 @@ description: >-
   Use for an end-to-end desloppify improvement pass; scan and score the codebase,
   optionally refresh subjective review, run native triage, fix queued findings, and
   rescan against a target score.
-tags: ["type:domain", "desloppify", "code-quality", "flow:compose", "cap:reasoning", "cap:coding", "cap:tool-use"]
+tags: ["desloppify", "code-quality"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 2m
 inputs:
   repo:
     type: string
@@ -123,17 +133,27 @@ tasks:
       open_count: open_count
   target_check_final:
     needs: [rescan]
-    uses: wagie/score-threshold-check@1
+    run: check-score-threshold
+    quality-gate: "${{ has(result.met) && has(result.reason) && size(result.reason) > 0 }}"
+    instructions: |-
+      Compare the final score against the target threshold and report whether it was met.
     inputs:
       score: "${{ tasks.rescan.outputs.overall_score }}"
       threshold: "${{ inputs.target_score }}"
     outputs:
-      met: met
-      reason: reason
+      met: "${{ result.met }}"
+      reason: "${{ result.reason }}"
+      schema:
+        met:
+          type: boolean
+          description: Whether score meets or exceeds threshold
+        reason:
+          type: string
+          description: Brief explanation of the result
   summarize:
     needs: [initial_scan, review, triage, fix, rescan, target_check_final]
     worker:
-      match: "'reasoning' in skills"
+      match: "'reasoning' in capabilities"
     run: summarize-health-cycle
     quality-gate: "${{ has(result.summary) && has(result.score_delta) }}"
     instructions: |-

@@ -1,11 +1,9 @@
 .DEFAULT_GOAL := help
 .PHONY: test tidy clean help
 
-WAGIE_CORE_DIR ?= ../wagie
-
-## test: validate this library together with Wagie core templates
+## test: validate templates against wagie core
 test:
-	WAGIE_CORE_DIR="$(WAGIE_CORE_DIR)" go test -shuffle=on ./...
+	go test -shuffle=on ./...
 
 ## tidy: tidy go modules
 tidy:

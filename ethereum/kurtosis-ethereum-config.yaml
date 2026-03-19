@@ -4,7 +4,7 @@ description: >-
   Use when a workflow needs an ethereum-package configuration; design a sensible minimal
   `network_params.yaml` by default, or replicate an existing devnet profile when
   `config_mode` is `devnet-profile`.
-tags: ["pattern", "kurtosis", "ethereum", "ethpandaops", "configuration", "building-block", "type:pattern", "flow:compose", "cap:reasoning", "cap:tool-use"]
+tags: ["kurtosis", "ethereum", "ethpandaops", "configuration"]
 inputs:
   goal:
     type: string
@@ -93,7 +93,7 @@ tasks:
       fallback_pair_added: fallback_pair_added
   design_minimal_config:
     if: ${{ inputs.config_mode == 'minimal' }}
-    worker: {match: "'reasoning' in skills"}
+    worker: {match: "'reasoning' in capabilities"}
     run: design-kurtosis-ethereum-config
     retry:
       max: 2

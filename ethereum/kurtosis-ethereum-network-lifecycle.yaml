@@ -2,7 +2,7 @@ name: ethpandaops/kurtosis-ethereum-network-lifecycle
 version: "1.0"
 description: >-
   Use when a workflow needs a single-session Kurtosis Ethereum network lifecycle; designs config, launches the enclave, inspects it, optionally validates it over an observation window, summarizes the result, and cleans up when requested.
-tags: ["pattern", "kurtosis", "ethereum", "ethpandaops", "devnet", "validation", "building-block", "type:pattern", "flow:compose", "cap:reasoning", "cap:tool-use"]
+tags: ["kurtosis", "ethereum", "ethpandaops", "devnet", "validation"]
 inputs:
   goal:
     type: string
@@ -113,7 +113,7 @@ tasks:
   launch_network:
     needs: [design_config]
     if: ${{ inputs.launch == true }}
-    worker: {match: "'reasoning' in skills && 'tool-use' in capabilities"}
+    worker: {match: "'reasoning' in capabilities && 'tool-use' in capabilities"}
     run: launch-kurtosis-ethereum-package
     retry:
       max: 1
@@ -170,7 +170,7 @@ tasks:
   observe_network:
     needs: [design_config, launch_network, inspect_enclave]
     if: ${{ inputs.launch == true && inputs.observation_window != '0' && inputs.observation_window != '0 epochs' }}
-    worker: {match: "'reasoning' in skills && 'tool-use' in capabilities"}
+    worker: {match: "'reasoning' in capabilities && 'tool-use' in capabilities"}
     run: validate-kurtosis-ethereum-network
     retry:
       max: 1
@@ -255,7 +255,7 @@ tasks:
           description: Suggested follow-up actions after observation
   summarize_result:
     needs: [design_config, launch_network, inspect_enclave, observe_network]
-    worker: {match: "'reasoning' in skills"}
+    worker: {match: "'reasoning' in capabilities"}
     run: summarize-kurtosis-ethereum-network
     retry:
       max: 1

@@ -2,7 +2,7 @@ name: ethpandaops/kurtosis-ethereum-reference
 version: "1.0"
 description: >-
   Use when a workflow needs targeted ethereum-package reference material; retrieves the specific config, client, service, fork, or example information needed for a Kurtosis task.
-tags: ["atomic", "kurtosis", "ethereum", "ethpandaops", "reference", "building-block", "type:atomic", "cap:reasoning", "cap:tool-use"]
+tags: ["kurtosis", "ethereum", "ethpandaops", "reference"]
 defaults:
   retry:
     max: 2
@@ -30,7 +30,7 @@ inputs:
     description: Kurtosis package reference to inspect
 tasks:
   fetch_reference:
-    worker: {match: "'reasoning' in skills && 'tool-use' in capabilities"}
+    worker: {match: "'tool-use' in capabilities"}
     run: fetch-kurtosis-ethereum-reference
     quality-gate: "${{ has(result.reference_markdown) && size(result.reference_markdown) > 0 }}"
     instructions: |-

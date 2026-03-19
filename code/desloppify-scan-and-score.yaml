@@ -3,7 +3,7 @@ version: "1.0"
 description: >-
   Use when assessing the current health state of a codebase; runs desloppify scan followed
   by status to produce findings and composite health scores in one step.
-tags: ["pattern", "desloppify", "code-quality", "type:pattern", "flow:compose", "cap:tool-use"]
+tags: ["desloppify", "code-quality"]
 inputs:
   repo:
     type: string

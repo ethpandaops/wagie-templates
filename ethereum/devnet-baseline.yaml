@@ -2,7 +2,7 @@ name: ethpandaops/devnet-baseline
 version: "1.0"
 description: >-
   Use when a workflow needs an initial Ethereum devnet state assessment; builds baseline observations and classifies the most likely issue type.
-tags: ["pattern", "devnet", "ethereum", "ethpandaops", "debugging", "building-block", "type:pattern", "flow:compose", "cap:reasoning", "cap:tool-use"]
+tags: ["devnet", "ethereum", "ethpandaops", "debugging"]
 defaults:
   retry:
     max: 1
@@ -76,7 +76,7 @@ inputs:
         type: string
 tasks:
   observe:
-    worker: {match: "'tool-use' in capabilities && 'reasoning' in skills"}
+    worker: {match: "'tool-use' in capabilities && 'reasoning' in capabilities"}
     run: baseline-devnet-state
     quality-gate: "${{ has(result.baseline_summary) && size(result.baseline_summary) > 0 }}"
     instructions: |-
@@ -159,7 +159,7 @@ tasks:
           description: Instance-level status notes using full resolved instance names
   classify_issue:
     needs: [observe]
-    worker: {match: "'reasoning' in skills"}
+    worker: {match: "'reasoning' in capabilities"}
     run: classify-devnet-issue
     quality-gate: "${{ has(result.suspected_issue_type) && size(result.suspected_issue_type) > 0 && result.confidence >= 0 && result.confidence <= 100 && has(result.reasoning) && size(result.reasoning) > 0 }}"
     inputs:
