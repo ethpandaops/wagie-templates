@@ -103,7 +103,7 @@ tasks:
       launch: ${{ inputs.launch }}
       auto_cleanup: false
     outputs:
-      config_yaml: config_yaml
+      config: config
       config_summary: config_summary
       effective_client_pairs: effective_client_pairs
       fallback_pair_added: fallback_pair_added
@@ -187,7 +187,7 @@ finally:
       summary: summary
 outputs:
   resolved_network_name: "${{ has(tasks.lifecycle.outputs.resolved_network_name) ? tasks.lifecycle.outputs.resolved_network_name : '' }}"
-  config_yaml: ${{ tasks.lifecycle.outputs.config_yaml }}
+  config: ${{ tasks.lifecycle.outputs.config }}
   effective_client_pairs: "${{ has(tasks.lifecycle.outputs.effective_client_pairs) ? tasks.lifecycle.outputs.effective_client_pairs : [] }}"
   fallback_pair_added: "${{ has(tasks.lifecycle.outputs.fallback_pair_added) ? tasks.lifecycle.outputs.fallback_pair_added : false }}"
   launch_summary: ${{ tasks.lifecycle.outputs.launch_summary }}

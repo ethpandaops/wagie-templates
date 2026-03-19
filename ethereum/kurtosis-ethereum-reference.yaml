@@ -32,7 +32,7 @@ tasks:
   fetch_reference:
     worker: {match: "'tool-use' in capabilities"}
     run: fetch-kurtosis-ethereum-reference
-    quality-gate: "${{ has(result.reference_markdown) && size(result.reference_markdown) > 0 }}"
+    quality-gate: "${{ has(result.reference_summary) && size(result.reference_summary) > 0 }}"
     instructions: |-
       Retrieve targeted reference material for the ethpandaops ethereum-package.
 
@@ -46,18 +46,20 @@ tasks:
       - If the section requires a query, use it exactly and fail clearly if it is missing.
       - Prefer concise, operator-usable output rather than dumping every possible field.
       - Preserve exact field names, supported values, and example names where they matter.
+      - Write the full reference material as the `reference` output artifact.
     inputs:
       section: ${{ inputs.section }}
       query: "${{ has(inputs.query) ? inputs.query : '' }}"
       package_ref: ${{ inputs.package_ref }}
     outputs:
-      reference_markdown: ${{ result.reference_markdown }}
-      reference_summary: "${{ has(result.reference_summary) ? result.reference_summary : result.reference_markdown }}"
+      reference_summary: "${{ has(result.reference_summary) ? result.reference_summary : '' }}"
       extracted_items: "${{ has(result.extracted_items) ? result.extracted_items : [] }}"
       schema:
-        reference_markdown:
-          type: string
+        reference:
+          kind: artifact
+          content-type: text/markdown
           description: Targeted reference material for the requested section
+          required: true
         reference_summary:
           type: string
           description: Short summary of the most relevant reference points
@@ -67,6 +69,6 @@ tasks:
             type: string
           description: Key values, field names, or example identifiers extracted from the reference
 outputs:
-  reference_markdown: ${{ tasks.fetch_reference.outputs.reference_markdown }}
+  reference: ${{ tasks.fetch_reference.outputs.reference }}
   reference_summary: ${{ tasks.fetch_reference.outputs.reference_summary }}
   extracted_items: ${{ tasks.fetch_reference.outputs.extracted_items }}

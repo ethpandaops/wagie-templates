@@ -104,7 +104,7 @@ tasks:
     outputs:
       resolved_network_name: resolved_network_name
       resolved_network_group: resolved_network_group
-      config_yaml: config_yaml
+      config: config
       config_summary: config_summary
       inferred_features: inferred_features
       devnet_assumptions: devnet_assumptions
@@ -132,7 +132,7 @@ tasks:
       Use the `panda` binary when you need to surface network or devnet information during launch preparation.
 
       Requirements:
-      - Materialize the designed config as a local args file.
+      - Use the provided `config` artifact as the args file for the kurtosis run command.
       - Run the requested package reference with the provided enclave name.
       - Prefer `--args-file` and `--image-download always`.
       - If the package reference already points to a fork or branch, use it exactly as provided.
@@ -140,7 +140,9 @@ tasks:
     inputs:
       enclave_name: ${{ inputs.enclave_name }}
       package_ref: ${{ inputs.package_ref }}
-      config_yaml: ${{ tasks.design_config.outputs.config_yaml }}
+      config: ${{ tasks.design_config.outputs.config }}
+      schema:
+        config: artifact
     outputs:
       launch_summary: ${{ result.launch_summary }}
       run_command: ${{ result.run_command }}
@@ -318,7 +320,7 @@ finally:
 outputs:
   resolved_network_name: ${{ tasks.design_config.outputs.resolved_network_name }}
   resolved_network_group: ${{ tasks.design_config.outputs.resolved_network_group }}
-  config_yaml: ${{ tasks.design_config.outputs.config_yaml }}
+  config: ${{ tasks.design_config.outputs.config }}
   config_summary: ${{ tasks.design_config.outputs.config_summary }}
   inferred_features: ${{ tasks.design_config.outputs.inferred_features }}
   devnet_assumptions: ${{ tasks.design_config.outputs.devnet_assumptions }}

@@ -23,10 +23,9 @@ inputs:
     type: string
     required: true
     description: "Branch whose review dimensions should be refreshed"
-  state_json:
-    type: string
-    default: ""
-    description: "Serialized desloppify state to materialize locally before running"
+  state:
+    type: artifact
+    description: "Desloppify state to carry across operations"
   dimensions:
     type: array
     default: []
@@ -48,9 +47,8 @@ tasks:
     instructions: |-
       Clone or reuse `repo`, fetch `origin/branch_name`, and checkout the branch before
       invoking desloppify.
-      If `state_json` is provided, write it to a temporary state file and pass `--state`
-      to the upstream review commands. After the review/import completes, read the active
-      state file and return it as `state_json`.
+      If the `state` input is provided, pass it to the upstream review commands with `--state`.
+      After the review/import completes, write the active state file as the `state` output artifact.
       Run desloppify's native batch review flow with `--run-batches --runner codex`.
       If `dimensions` is non-empty, pass them through with `--dimensions`.
       If `parallel` is true, enable the upstream parallel mode.
@@ -59,31 +57,36 @@ tasks:
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
-      state_json: "${{ inputs.state_json }}"
+      state: "${{ has(inputs.state) ? inputs.state : '' }}"
       dimensions: "${{ inputs.dimensions }}"
       parallel: "${{ inputs.parallel }}"
+      schema:
+        state: artifact
     outputs:
       imported: "${{ result.imported }}"
       dimensions_assessed: "${{ result.dimensions_assessed }}"
       import_summary: "${{ result.import_summary }}"
-      state_json: "${{ result.state_json }}"
       schema:
         imported: { type: boolean }
         dimensions_assessed: { type: array, items: { type: string } }
         import_summary: { type: string }
-        state_json: { type: string }
+        state:
+          kind: artifact
+          content-type: application/json
+          description: Updated desloppify state
+          required: true
   status:
     needs: [review]
     uses: ethpandaops/desloppify-status@1
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
-      state_json: "${{ tasks.review.outputs.state_json }}"
+      state: "${{ tasks.review.outputs.state }}"
     outputs:
       dimensions: dimensions
       overall_score: overall_score
       strict_score: strict_score
-      state_json: state_json
+      state: state
   summarize_review:
     needs: [review, status]
     worker:
@@ -115,7 +118,7 @@ outputs:
   imported: ${{ tasks.review.outputs.imported }}
   dimensions_assessed: ${{ tasks.review.outputs.dimensions_assessed }}
   import_summary: ${{ tasks.review.outputs.import_summary }}
-  state_json: ${{ tasks.status.outputs.state_json }}
+  state: ${{ tasks.status.outputs.state }}
   dimension_scores: ${{ tasks.summarize_review.outputs.dimension_scores }}
   average_score: ${{ tasks.summarize_review.outputs.average_score }}
   weakest_dimension: ${{ tasks.summarize_review.outputs.weakest_dimension }}

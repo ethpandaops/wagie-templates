@@ -13,10 +13,9 @@ inputs:
     type: string
     required: true
     description: "Branch whose queued findings should be triaged"
-  state_json:
-    type: string
-    default: ""
-    description: "Serialized desloppify state to materialize locally before running"
+  state:
+    type: artifact
+    description: "Desloppify state to carry across operations"
   max_items:
     type: number
     default: 20
@@ -39,9 +38,8 @@ tasks:
     instructions: |-
       Clone or reuse `repo`, fetch `origin/branch_name`, and checkout the branch before
       invoking desloppify.
-      If `state_json` is provided, write it to a temporary state file and pass `--state`
-      to the upstream plan commands. After triage finishes, read the active state file and
-      return it as `state_json`.
+      If the `state` input is provided, pass it to the upstream plan commands with `--state`.
+      After triage finishes, write the active state file as the `state` output artifact.
       Run desloppify's native staged triage flow with
       `desloppify plan triage --run-stages --runner codex`.
       If `only_stages` is non-empty, pass them through as the upstream `--only-stages`
@@ -51,18 +49,23 @@ tasks:
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
-      state_json: "${{ inputs.state_json }}"
+      state: "${{ has(inputs.state) ? inputs.state : '' }}"
       only_stages: "${{ inputs.only_stages }}"
+      schema:
+        state: artifact
     outputs:
       triage_completed: "${{ result.triage_completed }}"
       total_planned: "${{ result.total_planned }}"
       triage_summary: "${{ result.triage_summary }}"
-      state_json: "${{ result.state_json }}"
       schema:
         triage_completed: { type: boolean }
         total_planned: { type: number }
         triage_summary: { type: string }
-        state_json: { type: string }
+        state:
+          kind: artifact
+          content-type: application/json
+          description: Updated desloppify state
+          required: true
   queue_preview:
     needs: [run_triage]
     if: "${{ tasks.run_triage.outputs.triage_completed == true && tasks.run_triage.outputs.total_planned > 0 }}"
@@ -70,13 +73,13 @@ tasks:
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
-      state_json: "${{ tasks.run_triage.outputs.state_json }}"
+      state: "${{ tasks.run_triage.outputs.state }}"
       count: "${{ inputs.max_items }}"
     outputs:
       items: items
-      state_json: state_json
+      state: state
 outputs:
   plan_items: "${{ has(tasks.queue_preview.outputs.items) ? tasks.queue_preview.outputs.items : [] }}"
   total_planned: ${{ tasks.run_triage.outputs.total_planned }}
   triage_summary: ${{ tasks.run_triage.outputs.triage_summary }}
-  state_json: "${{ has(tasks.queue_preview.outputs.state_json) ? tasks.queue_preview.outputs.state_json : tasks.run_triage.outputs.state_json }}"
+  state: "${{ has(tasks.queue_preview.outputs.state) ? tasks.queue_preview.outputs.state : tasks.run_triage.outputs.state }}"

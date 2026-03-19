@@ -13,10 +13,9 @@ inputs:
     type: string
     required: true
     description: "Branch to scan and score"
-  state_json:
-    type: string
-    default: ""
-    description: "Serialized desloppify state to materialize locally before running"
+  state:
+    type: artifact
+    description: "Desloppify state to carry across operations"
   exclusions:
     type: array
     default: []
@@ -31,11 +30,11 @@ tasks:
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
-      state_json: "${{ inputs.state_json }}"
+      state: "${{ has(inputs.state) ? inputs.state : '' }}"
       exclusions: "${{ inputs.exclusions }}"
     outputs:
       findings_count: findings_count
-      state_json: state_json
+      state: state
       detectors_run: detectors_run
       tier_breakdown: tier_breakdown
       languages_detected: languages_detected
@@ -45,7 +44,7 @@ tasks:
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
-      state_json: "${{ tasks.scan.outputs.state_json }}"
+      state: "${{ tasks.scan.outputs.state }}"
     outputs:
       overall_score: overall_score
       strict_score: strict_score
@@ -55,10 +54,10 @@ tasks:
       fixed_count: fixed_count
       wontfix_count: wontfix_count
       dimensions: dimensions
-      state_json: state_json
+      state: state
 outputs:
   findings_count: ${{ tasks.scan.outputs.findings_count }}
-  state_json: ${{ tasks.score.outputs.state_json }}
+  state: ${{ tasks.score.outputs.state }}
   tier_breakdown: ${{ tasks.scan.outputs.tier_breakdown }}
   languages_detected: ${{ tasks.scan.outputs.languages_detected }}
   overall_score: ${{ tasks.score.outputs.overall_score }}

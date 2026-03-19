@@ -121,7 +121,6 @@ tasks:
   render_report:
     worker: {match: "'writing' in skills"}
     run: render-devnet-report
-    quality-gate: "${{ has(result.report_markdown) && size(result.report_markdown) > 0 }}"
     instructions: |-
       Render a concise markdown incident report for sharing.
 
@@ -138,6 +137,7 @@ tasks:
       Include concrete evidence excerpts when available, not just paraphrases.
       Make the recommended actions debuggable and actionable for an operator.
       If a section has little data, say so directly instead of padding.
+      Write the rendered report as the `report` output artifact.
     inputs:
       network_name: ${{ inputs.network_name }}
       investigation_timeframe: ${{ inputs.investigation_timeframe }}
@@ -154,10 +154,11 @@ tasks:
       log_examples: ${{ inputs.log_examples }}
       recommended_actions: ${{ inputs.recommended_actions }}
     outputs:
-      report_markdown: ${{ result.report_markdown }}
       schema:
-        report_markdown:
-          type: string
+        report:
+          kind: artifact
+          content-type: text/markdown
           description: Shareable markdown incident report
+          required: true
 outputs:
-  report_markdown: ${{ tasks.render_report.outputs.report_markdown }}
+  report: ${{ tasks.render_report.outputs.report }}

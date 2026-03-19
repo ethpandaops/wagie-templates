@@ -163,7 +163,7 @@ tasks:
       auto_cleanup: false
     outputs:
       resolved_network_name: resolved_network_name
-      config_yaml: config_yaml
+      config: config
       config_summary: config_summary
       devnet_assumptions: devnet_assumptions
       effective_client_pairs: effective_client_pairs
@@ -246,7 +246,7 @@ outputs:
   active_devnet_summary: ${{ tasks.debug_devnet.outputs.summary }}
   repro_goal: ${{ tasks.derive_repro_plan.outputs.repro_goal }}
   repro_constraints: ${{ tasks.derive_repro_plan.outputs.repro_constraints }}
-  derived_repro_config_yaml: ${{ tasks.launch_in_kurtosis.outputs.config_yaml }}
+  derived_repro_config: ${{ tasks.launch_in_kurtosis.outputs.config }}
   derived_repro_config_summary: ${{ tasks.launch_in_kurtosis.outputs.config_summary }}
   derived_repro_assumptions: ${{ tasks.launch_in_kurtosis.outputs.devnet_assumptions }}
   effective_client_pairs: ${{ tasks.launch_in_kurtosis.outputs.effective_client_pairs }}

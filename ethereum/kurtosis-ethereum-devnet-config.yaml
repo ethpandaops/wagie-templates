@@ -94,7 +94,7 @@ tasks:
       section: participants
       package_ref: ${{ inputs.package_ref }}
     outputs:
-      reference_markdown: reference_markdown
+      reference: reference
       reference_summary: reference_summary
       extracted_items: extracted_items
   derive_config:
@@ -110,7 +110,7 @@ tasks:
         max-delay: 1m
         jitter: true
       timeout: 5m
-    quality-gate: "${{ has(result.config_yaml) && size(result.config_yaml) > 0 && has(result.config_summary) && size(result.config_summary) > 0 }}"
+    quality-gate: "${{ has(result.config_summary) && size(result.config_summary) > 0 }}"
     instructions: |-
       Derive a minimal ethereum-package configuration from the resolved devnet context.
 
@@ -122,6 +122,7 @@ tasks:
       - Use the provided participants reference as the authoritative field/value guide.
       - Preserve the minimal representative topology supplied in effective_client_pairs.
       - Do not perform additional package or devnet discovery inside this step.
+      - Write the generated configuration as the `config` output artifact.
     inputs:
       devnet_name: ${{ inputs.devnet_name }}
       goal: "${{ has(inputs.goal) ? inputs.goal : '' }}"
@@ -137,13 +138,14 @@ tasks:
       notes_summary: "${{ has(tasks.devnet_notes.outputs.notes_summary) ? tasks.devnet_notes.outputs.notes_summary : '' }}"
       notes_highlights: "${{ has(tasks.devnet_notes.outputs.notes_highlights) ? tasks.devnet_notes.outputs.notes_highlights : [] }}"
       notes_assumptions: "${{ has(tasks.topology_profile.outputs.assumptions) ? tasks.topology_profile.outputs.assumptions : [] }}"
-      participants_reference: "${{ has(tasks.package_reference.outputs.reference_markdown) ? tasks.package_reference.outputs.reference_markdown : '' }}"
+      participants_reference: "${{ has(tasks.package_reference.outputs.reference) ? tasks.package_reference.outputs.reference : '' }}"
       participants_reference_summary: "${{ has(tasks.package_reference.outputs.reference_summary) ? tasks.package_reference.outputs.reference_summary : '' }}"
       effective_client_pairs_input: "${{ has(tasks.topology_profile.outputs.effective_client_pairs) ? tasks.topology_profile.outputs.effective_client_pairs : [] }}"
+      schema:
+        participants_reference: artifact
     outputs:
       resolved_network_name: ${{ inputs.devnet_name }}
       resolved_network_group: ""
-      config_yaml: ${{ result.config_yaml }}
       config_summary: ${{ result.config_summary }}
       assumptions: "${{ has(result.assumptions) ? result.assumptions : [] }}"
       effective_client_pairs: "${{ has(result.effective_client_pairs) ? result.effective_client_pairs : [] }}"
@@ -155,9 +157,11 @@ tasks:
         resolved_network_group:
           type: string
           description: Resolved devnet group when applicable
-        config_yaml:
-          type: string
+        config:
+          kind: artifact
+          content-type: application/x-yaml
           description: Minimal Kurtosis ethereum-package config derived from the devnet
+          required: true
         config_summary:
           type: string
           description: Summary of how the config maps to the source devnet
@@ -205,7 +209,7 @@ tasks:
 outputs:
   resolved_network_name: ${{ tasks.derive_config.outputs.resolved_network_name }}
   resolved_network_group: ${{ tasks.derive_config.outputs.resolved_network_group }}
-  config_yaml: ${{ tasks.derive_config.outputs.config_yaml }}
+  config: ${{ tasks.derive_config.outputs.config }}
   config_summary: ${{ tasks.derive_config.outputs.config_summary }}
   assumptions: "${{ size(tasks.derive_config.outputs.assumptions) > 0 ? tasks.derive_config.outputs.assumptions : tasks.topology_profile.outputs.assumptions }}"
   effective_client_pairs: "${{ size(tasks.derive_config.outputs.effective_client_pairs) > 0 ? tasks.derive_config.outputs.effective_client_pairs : tasks.topology_profile.outputs.effective_client_pairs }}"

@@ -14,10 +14,9 @@ inputs:
     type: string
     required: true
     description: "Branch where queued fixes should be committed and pushed"
-  state_json:
-    type: string
-    default: ""
-    description: "Serialized desloppify state to carry across loop iterations"
+  state:
+    type: artifact
+    description: "Desloppify state to carry across loop iterations"
   max_fixes:
     type: number
     default: 10
@@ -30,13 +29,13 @@ tasks:
         fixes_completed: "${{ 0 }}"
         fix_log: "${{ [] }}"
         queue_empty: "${{ false }}"
-        state_json: "${{ inputs.state_json }}"
+        state: "${{ has(inputs.state) ? inputs.state : '' }}"
       until: "${{ loop.queue_empty == true }}"
       on-max-exhausted: continue
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
-      state_json: "${{ loop.state_json }}"
+      state: "${{ loop.state }}"
       prev_fixes_completed: "${{ loop.fixes_completed }}"
       prev_fix_log: "${{ loop.fix_log }}"
     tasks:
@@ -45,11 +44,11 @@ tasks:
         inputs:
           repo: "${{ inputs.repo }}"
           branch_name: "${{ inputs.branch_name }}"
-          state_json: "${{ inputs.state_json }}"
+          state: "${{ inputs.state }}"
         outputs:
           items: items
           queue_empty: queue_empty
-          state_json: state_json
+          state: state
       apply_fix:
         needs: [get_next]
         if: "${{ tasks.get_next.outputs.queue_empty == false }}"
@@ -70,29 +69,30 @@ tasks:
         inputs:
           repo: "${{ inputs.repo }}"
           branch_name: "${{ inputs.branch_name }}"
-          state_json: "${{ tasks.get_next.outputs.state_json }}"
+          state: "${{ tasks.get_next.outputs.state }}"
           finding_pattern: "${{ tasks.get_next.outputs.items[0].finding_id }}"
           note: "${{ tasks.apply_fix.outputs.description }}"
         outputs:
           resolved: resolved
-          state_json: state_json
+          state: state
       accumulate:
         needs: [get_next, mark_resolved]
         worker:
           match: "'writing' in skills"
         run: accumulate-fix-state
-        quality-gate: "${{ has(result.fixes_completed) && has(result.queue_empty) && has(result.state_json) && size(result.state_json) > 0 }}"
+        quality-gate: "${{ has(result.fixes_completed) && has(result.queue_empty) && has(result.state) && size(result.state) > 0 }}"
         instructions: |-
           Update the loop state after one queue attempt.
           Increment `fixes_completed` only when the finding was resolved.
           Append a concise log entry only for resolved fixes.
+          Return the most recent state reference unchanged.
         inputs:
           prev_fixes_completed: "${{ inputs.prev_fixes_completed }}"
           prev_fix_log: "${{ inputs.prev_fix_log }}"
           queue_empty: "${{ tasks.get_next.outputs.queue_empty }}"
           resolved: "${{ has(tasks.mark_resolved.outputs.resolved) ? tasks.mark_resolved.outputs.resolved : false }}"
-          previous_state_json: "${{ inputs.state_json }}"
-          current_state_json: "${{ has(tasks.mark_resolved.outputs.state_json) ? tasks.mark_resolved.outputs.state_json : tasks.get_next.outputs.state_json }}"
+          previous_state: "${{ inputs.state }}"
+          current_state: "${{ has(tasks.mark_resolved.outputs.state) ? tasks.mark_resolved.outputs.state : tasks.get_next.outputs.state }}"
           current_finding_id: "${{ has(tasks.get_next.outputs.items) && size(tasks.get_next.outputs.items) > 0 ? tasks.get_next.outputs.items[0].finding_id : '' }}"
           current_file_path: "${{ has(tasks.get_next.outputs.items) && size(tasks.get_next.outputs.items) > 0 ? tasks.get_next.outputs.items[0].file_path : '' }}"
           current_description: "${{ has(tasks.apply_fix.outputs.description) ? tasks.apply_fix.outputs.description : '' }}"
@@ -101,7 +101,7 @@ tasks:
           fixes_completed: "${{ result.fixes_completed }}"
           fix_log: "${{ result.fix_log }}"
           queue_empty: "${{ result.queue_empty }}"
-          state_json: "${{ result.state_json }}"
+          state: "${{ result.state }}"
           schema:
             fixes_completed:
               type: number
@@ -111,13 +111,13 @@ tasks:
                 type: string
             queue_empty:
               type: boolean
-            state_json:
+            state:
               type: string
     outputs:
       fixes_completed: "${{ tasks.accumulate.outputs.fixes_completed }}"
       fix_log: "${{ tasks.accumulate.outputs.fix_log }}"
       queue_empty: "${{ tasks.accumulate.outputs.queue_empty }}"
-      state_json: "${{ tasks.accumulate.outputs.state_json }}"
+      state: "${{ tasks.accumulate.outputs.state }}"
       schema:
         fixes_completed:
           type: number
@@ -127,10 +127,10 @@ tasks:
             type: string
         queue_empty:
           type: boolean
-        state_json:
+        state:
           type: string
 outputs:
   manual_fixes_completed: "${{ tasks.fix_iteration.outputs.fixes_completed }}"
   fix_log: "${{ tasks.fix_iteration.outputs.fix_log }}"
   queue_empty: "${{ tasks.fix_iteration.outputs.queue_empty }}"
-  state_json: "${{ tasks.fix_iteration.outputs.state_json }}"
+  state: "${{ tasks.fix_iteration.outputs.state }}"

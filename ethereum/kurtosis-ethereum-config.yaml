@@ -86,7 +86,7 @@ tasks:
     outputs:
       resolved_network_name: resolved_network_name
       resolved_network_group: resolved_network_group
-      config_yaml: config_yaml
+      config: config
       config_summary: config_summary
       assumptions: assumptions
       effective_client_pairs: effective_client_pairs
@@ -104,7 +104,7 @@ tasks:
         max-delay: 1m
         jitter: true
       timeout: 5m
-    quality-gate: "${{ has(result.config_yaml) && size(result.config_yaml) > 0 && has(result.config_summary) && size(result.config_summary) > 0 && has(result.effective_client_pairs) && size(result.effective_client_pairs) >= 2 }}"
+    quality-gate: "${{ has(result.config_summary) && size(result.config_summary) > 0 && has(result.effective_client_pairs) && size(result.effective_client_pairs) >= 2 }}"
     instructions: |-
       Design a sensible minimal `network_params.yaml` for the ethpandaops ethereum-package.
 
@@ -122,6 +122,7 @@ tasks:
       - Preserve distinct client/image combinations that matter, but use `count: 1` for each unless the goal or constraints explicitly require multiplicity.
       - If the caller provides fewer than two viable pairs, infer or add additional compatible fallback pairs until there are at least two effective participant pairs, and record that choice.
       - Do not perform deep package or devnet discovery inside this step.
+      - Write the generated configuration as the `config` output artifact.
     inputs:
       goal: ${{ inputs.goal }}
       constraints: "${{ has(inputs.constraints) ? inputs.constraints : '' }}"
@@ -131,15 +132,16 @@ tasks:
       image_hint: "${{ has(inputs.image_hint) ? inputs.image_hint : '' }}"
       client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
     outputs:
-      config_yaml: ${{ result.config_yaml }}
       config_summary: ${{ result.config_summary }}
       inferred_features: "${{ has(result.inferred_features) ? result.inferred_features : [] }}"
       effective_client_pairs: "${{ has(result.effective_client_pairs) ? result.effective_client_pairs : [] }}"
       fallback_pair_added: "${{ has(result.fallback_pair_added) ? result.fallback_pair_added : false }}"
       schema:
-        config_yaml:
-          type: string
-          description: Minimal ethereum-package configuration in YAML
+        config:
+          kind: artifact
+          content-type: application/x-yaml
+          description: Minimal Kurtosis ethereum-package config
+          required: true
         config_summary:
           type: string
           description: Short summary of why the configuration matches the goal
@@ -187,7 +189,7 @@ tasks:
 outputs:
   resolved_network_name: "${{ has(tasks.replicate_devnet_config.outputs.resolved_network_name) ? tasks.replicate_devnet_config.outputs.resolved_network_name : '' }}"
   resolved_network_group: "${{ has(tasks.replicate_devnet_config.outputs.resolved_network_group) ? tasks.replicate_devnet_config.outputs.resolved_network_group : '' }}"
-  config_yaml: "${{ has(tasks.replicate_devnet_config.outputs.config_yaml) ? tasks.replicate_devnet_config.outputs.config_yaml : tasks.design_minimal_config.outputs.config_yaml }}"
+  config: "${{ has(tasks.replicate_devnet_config.outputs.config) ? tasks.replicate_devnet_config.outputs.config : tasks.design_minimal_config.outputs.config }}"
   config_summary: "${{ has(tasks.replicate_devnet_config.outputs.config_summary) ? tasks.replicate_devnet_config.outputs.config_summary : tasks.design_minimal_config.outputs.config_summary }}"
   inferred_features: "${{ has(tasks.design_minimal_config.outputs.inferred_features) ? tasks.design_minimal_config.outputs.inferred_features : [] }}"
   effective_client_pairs: "${{ has(tasks.replicate_devnet_config.outputs.effective_client_pairs) ? tasks.replicate_devnet_config.outputs.effective_client_pairs : tasks.design_minimal_config.outputs.effective_client_pairs }}"

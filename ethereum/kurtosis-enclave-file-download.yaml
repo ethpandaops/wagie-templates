@@ -22,34 +22,29 @@ inputs:
     type: string
     required: true
     description: Kurtosis file name to download
-  output_directory:
-    type: string
-    required: true
-    description: Local directory for the downloaded file
 tasks:
   download_file:
     worker: {match: "'tool-use' in capabilities"}
     run: download-kurtosis-file
-    quality-gate: "${{ has(result.local_path) && size(result.local_path) > 0 }}"
+    quality-gate: "${{ has(result.summary) }}"
     instructions: |-
       Download a named file from a Kurtosis enclave.
 
       Use the `kurtosis` CLI as the primary tool surface for this task.
-      Prefer the standard file download flow and return the resolved local path.
+      Download the file and write it as the `file` output artifact.
     inputs:
       enclave_name: ${{ inputs.enclave_name }}
       file_name: ${{ inputs.file_name }}
-      output_directory: ${{ inputs.output_directory }}
     outputs:
-      local_path: ${{ result.local_path }}
       summary: "${{ has(result.summary) ? result.summary : '' }}"
       schema:
-        local_path:
-          type: string
-          description: Local path of the downloaded file
+        file:
+          kind: artifact
+          description: Downloaded enclave file
+          required: true
         summary:
           type: string
           description: Short download summary
 outputs:
-  local_path: ${{ tasks.download_file.outputs.local_path }}
+  file: ${{ tasks.download_file.outputs.file }}
   summary: ${{ tasks.download_file.outputs.summary }}
