@@ -19,10 +19,9 @@ inputs:
     type: string
     required: true
     description: "Branch to scan"
-  state_json:
-    type: string
-    default: ""
-    description: "Serialized desloppify state to materialize locally before running"
+  state:
+    type: artifact
+    description: "Desloppify state to carry across operations"
   exclusions:
     type: array
     default: []
@@ -36,29 +35,33 @@ tasks:
     worker:
       match: "'tool-use' in capabilities"
     run: desloppify-scan
-    quality-gate: "${{ has(result.findings_count) && result.findings_count >= 0 && has(result.state_json) }}"
+    quality-gate: "${{ has(result.findings_count) && result.findings_count >= 0 }}"
     instructions: |-
       Clone or reuse `repo`, fetch `origin/branch_name`, and checkout the branch before
       invoking desloppify.
       Apply any requested exclusions with `desloppify exclude`.
-      If `state_json` is provided, write it to a temporary state file and pass `--state`
-      to the upstream command. After the command finishes, read the active state file and
-      return it as `state_json`.
+      If the `state` input is provided, pass it to the upstream command with `--state`.
+      After the command finishes, write the active state file as the `state` output artifact.
       Run `desloppify scan` and parse the scan summary into the declared outputs.
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
-      state_json: "${{ inputs.state_json }}"
+      state: "${{ has(inputs.state) ? inputs.state : '' }}"
       exclusions: "${{ inputs.exclusions }}"
+      schema:
+        state: artifact
     outputs:
       findings_count: "${{ result.findings_count }}"
-      state_json: "${{ result.state_json }}"
       detectors_run: "${{ result.detectors_run }}"
       tier_breakdown: "${{ result.tier_breakdown }}"
       languages_detected: "${{ result.languages_detected }}"
       schema:
         findings_count: { type: number }
-        state_json: { type: string }
+        state:
+          kind: artifact
+          content-type: application/json
+          description: Updated desloppify state
+          required: true
         detectors_run: { type: array, items: { type: string } }
         tier_breakdown:
           type: object
@@ -70,7 +73,7 @@ tasks:
         languages_detected: { type: array, items: { type: string } }
 outputs:
   findings_count: ${{ tasks.scan.outputs.findings_count }}
-  state_json: ${{ tasks.scan.outputs.state_json }}
+  state: ${{ tasks.scan.outputs.state }}
   detectors_run: ${{ tasks.scan.outputs.detectors_run }}
   tier_breakdown: ${{ tasks.scan.outputs.tier_breakdown }}
   languages_detected: ${{ tasks.scan.outputs.languages_detected }}

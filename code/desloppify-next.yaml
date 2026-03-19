@@ -19,10 +19,9 @@ inputs:
     type: string
     required: true
     description: "Branch whose queued findings should be read"
-  state_json:
-    type: string
-    default: ""
-    description: "Serialized desloppify state to materialize locally before running"
+  state:
+    type: artifact
+    description: "Desloppify state to carry across operations"
   count:
     type: number
     default: 1
@@ -36,22 +35,22 @@ tasks:
     instructions: |-
       Clone or reuse `repo`, fetch `origin/branch_name`, and checkout the branch before
       invoking desloppify.
-      If `state_json` is provided, write it to a temporary state file and pass `--state`
-      to the upstream command. After the command finishes, read the active state file and
-      return it as `state_json`.
+      If the `state` input is provided, pass it to the upstream command with `--state`.
+      After the command finishes, write the active state file as the `state` output artifact.
       Run `desloppify next`, adding `--count` when `count` is greater than 1.
       Parse the queue entries into structured finding data and include the exact
       resolve command shown by desloppify.
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
-      state_json: "${{ inputs.state_json }}"
+      state: "${{ has(inputs.state) ? inputs.state : '' }}"
       count: "${{ inputs.count }}"
+      schema:
+        state: artifact
     outputs:
       items: "${{ result.items }}"
       queue_remaining: "${{ result.queue_remaining }}"
       queue_empty: "${{ result.queue_empty }}"
-      state_json: "${{ result.state_json }}"
       schema:
         items:
           type: array
@@ -66,9 +65,13 @@ tasks:
               resolve_command: { type: string }
         queue_remaining: { type: number }
         queue_empty: { type: boolean }
-        state_json: { type: string }
+        state:
+          kind: artifact
+          content-type: application/json
+          description: Updated desloppify state
+          required: true
 outputs:
   items: ${{ tasks.get_next.outputs.items }}
   queue_remaining: ${{ tasks.get_next.outputs.queue_remaining }}
   queue_empty: ${{ tasks.get_next.outputs.queue_empty }}
-  state_json: ${{ tasks.get_next.outputs.state_json }}
+  state: ${{ tasks.get_next.outputs.state }}

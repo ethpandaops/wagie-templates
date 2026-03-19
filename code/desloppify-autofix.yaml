@@ -19,10 +19,9 @@ inputs:
     type: string
     required: true
     description: "Branch where autofix changes should be committed and pushed"
-  state_json:
-    type: string
-    default: ""
-    description: "Serialized desloppify state to materialize locally before running"
+  state:
+    type: artifact
+    description: "Desloppify state to carry across operations"
   dry_run:
     type: boolean
     default: false
@@ -40,9 +39,8 @@ tasks:
     instructions: |-
       Clone or reuse `repo`, fetch `origin/branch_name`, and checkout the branch before
       invoking desloppify.
-      If `state_json` is provided, write it to a temporary state file and pass `--state`
-      to the upstream command. After the command finishes, read the active state file and
-      return it as `state_json`.
+      If the `state` input is provided, pass it to the upstream command with `--state`.
+      After the command finishes, write the active state file as the `state` output artifact.
       Run `desloppify autofix <fixer>` for the requested `fixer`, adding `--dry-run`
       when requested.
       If `dry_run` is false and fixes are applied, commit and push the resulting changes
@@ -51,24 +49,29 @@ tasks:
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
-      state_json: "${{ inputs.state_json }}"
+      state: "${{ has(inputs.state) ? inputs.state : '' }}"
       dry_run: "${{ inputs.dry_run }}"
       fixer: "${{ inputs.fixer }}"
+      schema:
+        state: artifact
     outputs:
       fixes_applied: "${{ result.fixes_applied }}"
       files_modified: "${{ result.files_modified }}"
       fixes_preview: "${{ result.fixes_preview }}"
       commit_sha: "${{ result.commit_sha }}"
-      state_json: "${{ result.state_json }}"
       schema:
         fixes_applied: { type: number }
         files_modified: { type: array, items: { type: string } }
         fixes_preview: { type: array, items: { type: string } }
         commit_sha: { type: string }
-        state_json: { type: string }
+        state:
+          kind: artifact
+          content-type: application/json
+          description: Updated desloppify state
+          required: true
 outputs:
   fixes_applied: ${{ tasks.autofix.outputs.fixes_applied }}
   files_modified: ${{ tasks.autofix.outputs.files_modified }}
   fixes_preview: ${{ tasks.autofix.outputs.fixes_preview }}
   commit_sha: ${{ tasks.autofix.outputs.commit_sha }}
-  state_json: ${{ tasks.autofix.outputs.state_json }}
+  state: ${{ tasks.autofix.outputs.state }}

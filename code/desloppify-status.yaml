@@ -19,10 +19,9 @@ inputs:
     type: string
     required: true
     description: "Branch whose desloppify state should be scored"
-  state_json:
-    type: string
-    default: ""
-    description: "Serialized desloppify state to materialize locally before running"
+  state:
+    type: artifact
+    description: "Desloppify state to carry across operations"
 tasks:
   check_status:
     worker:
@@ -32,15 +31,16 @@ tasks:
     instructions: |-
       Clone or reuse `repo`, fetch `origin/branch_name`, and checkout the branch before
       invoking desloppify.
-      If `state_json` is provided, write it to a temporary state file and pass `--state`
-      to the upstream command. After the command finishes, read the active state file and
-      return it as `state_json`.
+      If the `state` input is provided, pass it to the upstream command with `--state`.
+      After the command finishes, write the active state file as the `state` output artifact.
       Run `desloppify status` and parse the reported score modes, counts, and
       per-dimension breakdown.
     inputs:
       repo: "${{ inputs.repo }}"
       branch_name: "${{ inputs.branch_name }}"
-      state_json: "${{ inputs.state_json }}"
+      state: "${{ has(inputs.state) ? inputs.state : '' }}"
+      schema:
+        state: artifact
     outputs:
       overall_score: "${{ result.overall_score }}"
       strict_score: "${{ result.strict_score }}"
@@ -50,7 +50,6 @@ tasks:
       fixed_count: "${{ result.fixed_count }}"
       wontfix_count: "${{ result.wontfix_count }}"
       dimensions: "${{ result.dimensions }}"
-      state_json: "${{ result.state_json }}"
       schema:
         overall_score: { type: number }
         strict_score: { type: number }
@@ -67,7 +66,11 @@ tasks:
               name: { type: string }
               score: { type: number }
               strict_score: { type: number }
-        state_json: { type: string }
+        state:
+          kind: artifact
+          content-type: application/json
+          description: Updated desloppify state
+          required: true
 outputs:
   overall_score: ${{ tasks.check_status.outputs.overall_score }}
   strict_score: ${{ tasks.check_status.outputs.strict_score }}
@@ -77,4 +80,4 @@ outputs:
   fixed_count: ${{ tasks.check_status.outputs.fixed_count }}
   wontfix_count: ${{ tasks.check_status.outputs.wontfix_count }}
   dimensions: ${{ tasks.check_status.outputs.dimensions }}
-  state_json: ${{ tasks.check_status.outputs.state_json }}
+  state: ${{ tasks.check_status.outputs.state }}
