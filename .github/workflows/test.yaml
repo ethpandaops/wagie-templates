@@ -1,0 +1,31 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout wagie-templates
+        uses: actions/checkout@v4
+        with:
+          path: wagie-templates
+
+      - name: Checkout wagie core
+        uses: actions/checkout@v4
+        with:
+          repository: ethpandaops/wagie
+          path: wagie
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: wagie-templates/go.mod
+          cache-dependency-path: wagie-templates/go.sum
+
+      - name: Run template validation
+        working-directory: wagie-templates
+        run: WAGIE_CORE_DIR="../wagie" go test -shuffle=on -v ./...
