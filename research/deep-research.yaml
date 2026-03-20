@@ -1,8 +1,18 @@
 name: ethpandaops/deep-research
 version: "1.0"
 description: >-
-  Use when a topic requires iterative depth-building; accumulates typed finding batches, assesses coverage, and stops when explicit sufficiency is reached.
+  Use when a topic requires structured, iterative research; decomposes via perspective-driven planning, accumulates typed findings across iterations, assesses coverage with a structured rubric, and verifies results adversarially before output.
 tags: ["research", "iterative", "deep-research"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 2m
 inputs:
   topic:
     type: string
@@ -13,26 +23,43 @@ inputs:
     default: moderate
     options: [shallow, moderate, deep]
     description: >-
-      Desired research depth. shallow: overview (completeness >= 60). moderate: solid coverage (>= 80). deep: comprehensive (>= 95).
+      Desired research depth. shallow: overview (3-5 sub-questions, completeness >= 60). moderate: solid coverage (5-10 sub-questions, >= 75). deep: comprehensive (10-15 sub-questions, >= 85).
+  context:
+    type: string
+    description: Optional context or constraints to guide the research
   max_iterations:
     type: number
     default: 5
     description: Maximum research iterations
 tasks:
+  plan:
+    uses: ethpandaops/research-plan@1
+    inputs:
+      topic: "${{ inputs.topic }}"
+      depth: "${{ inputs.depth }}"
+      context: "${{ has(inputs.context) ? inputs.context : '' }}"
+    outputs:
+      perspectives: perspectives
+      questions: questions
   research:
+    needs: [plan]
     loop:
       max: "${{ inputs.max_iterations }}"
       init:
         findings: "${{ [] }}"
         gaps: "${{ [] }}"
+        gap_count: "${{ 0 }}"
         completeness: "${{ 'insufficient' }}"
-      until: "${{ loop.completeness == 'sufficient' }}"
+        information_gain: "${{ 'high' }}"
+      until: "${{ loop.completeness == 'sufficient' || loop.information_gain == 'diminishing' }}"
       on-max-exhausted: continue
     inputs:
       topic: "${{ inputs.topic }}"
       depth: "${{ inputs.depth }}"
       previous_findings: "${{ loop.findings }}"
       gaps: "${{ loop.gaps }}"
+      previous_gap_count: "${{ loop.gap_count }}"
+      plan_questions: "${{ tasks.plan.outputs.questions }}"
     tasks:
       investigate:
         uses: ethpandaops/research-findings@1
@@ -40,6 +67,7 @@ tasks:
           topic: "${{ inputs.topic }}"
           previous_findings: "${{ inputs.previous_findings }}"
           gaps: "${{ inputs.gaps }}"
+          plan_questions: "${{ inputs.plan_questions }}"
         outputs:
           findings: findings
       accumulate:
@@ -47,13 +75,23 @@ tasks:
         worker: {match: "'reasoning' in capabilities"}
         run: accumulate-research-findings
         quality-gate: "${{ has(result.findings) }}"
-        instructions: |-
+        instructions: |
           Merge prior findings with the new research batch.
 
           Rules:
-          - Preserve previous findings
+          - Preserve all previous findings verbatim unless superseded
           - Append only substantively new findings
-          - Avoid duplicates or trivial paraphrases
+          - When a new finding corroborates an existing one, increase
+            the existing finding's corroboration count rather than
+            adding a duplicate
+          - When a new finding contradicts an existing one, update the
+            contradictions field on both findings
+          - If a new finding supersedes an old one with stronger
+            evidence, replace the old finding and note the upgrade
+          - Drop findings with confidence below 20 that have been
+            superseded by stronger evidence on the same claim
+
+          Preserve information. When in doubt, keep the finding.
         inputs:
           previous_findings: "${{ inputs.previous_findings }}"
           new_findings: "${{ tasks.investigate.outputs.findings }}"
@@ -71,6 +109,12 @@ tasks:
                     type: string
                   confidence:
                     type: number
+                  source_type:
+                    type: string
+                  evidence_strength:
+                    type: string
+                  corroboration:
+                    type: number
                   contradictions:
                     type: string
                 required: [claim, evidence, confidence]
@@ -82,14 +126,21 @@ tasks:
           topic: "${{ inputs.topic }}"
           depth: "${{ inputs.depth }}"
           findings: "${{ tasks.accumulate.outputs.findings }}"
+          previous_gap_count: "${{ inputs.previous_gap_count }}"
+          plan_questions: "${{ inputs.plan_questions }}"
         outputs:
           completeness: completeness
           gaps: gaps
+          scores: scores
+          information_gain: information_gain
           summary: summary
     outputs:
       findings: "${{ tasks.accumulate.outputs.findings }}"
       gaps: "${{ tasks.assess.outputs.gaps }}"
+      gap_count: "${{ size(tasks.assess.outputs.gaps) }}"
       completeness: "${{ tasks.assess.outputs.completeness }}"
+      information_gain: "${{ tasks.assess.outputs.information_gain }}"
+      scores: "${{ tasks.assess.outputs.scores }}"
       summary: "${{ tasks.assess.outputs.summary }}"
       schema:
         findings:
@@ -103,21 +154,128 @@ tasks:
                 type: string
               confidence:
                 type: number
+              source_type:
+                type: string
+              evidence_strength:
+                type: string
+              corroboration:
+                type: number
               contradictions:
                 type: string
             required: [claim, evidence, confidence]
         gaps:
           type: array
           items:
-            type: string
+            type: object
+            properties:
+              question:
+                type: string
+              priority:
+                type: string
+              difficulty:
+                type: string
+              dimension:
+                type: string
+            required: [question, priority, difficulty, dimension]
+        gap_count:
+          type: number
         completeness:
           type: string
           enum: [insufficient, sufficient]
+        information_gain:
+          type: string
+          enum: [high, moderate, diminishing]
+        scores:
+          type: object
+          properties:
+            breadth:
+              type: number
+            depth:
+              type: number
+            balance:
+              type: number
+            conflict_resolution:
+              type: number
         summary:
           type: string
+  verify:
+    needs: [research]
+    uses: ethpandaops/research-verify@1
+    inputs:
+      topic: "${{ inputs.topic }}"
+      findings: "${{ tasks.research.outputs.findings }}"
+      perspectives: "${{ tasks.plan.outputs.perspectives }}"
+    outputs:
+      verified_findings: verified_findings
+      issues: issues
+      open_questions: open_questions
+      verification_summary: verification_summary
+  synthesize:
+    needs: [verify]
+    worker: {match: "'writing' in skills"}
+    run: synthesize-research-report
+    quality-gate: "${{ has(result.summary) && size(result.summary) > 0 }}"
+    instructions: |
+      Render a structured markdown research report from the verified
+      findings.
+
+      Structure:
+      1. Title — the research topic as a heading
+      2. Executive summary — 3-5 sentences covering the most important
+         findings, written as direct assertions not hedged qualifications
+      3. Key findings — organized by the perspectives used during
+         research, each finding presented with its evidence and
+         confidence assessment
+      4. Areas of disagreement — where sources or findings conflict,
+         present both sides with the evidence for each
+      5. Verification notes — significant issues found during
+         verification, adjusted confidence levels, and why
+      6. Open questions — what the research could not answer and why
+      7. Coverage assessment — the rubric scores and what they mean
+
+      Writing standards:
+      - Write in direct, assertive prose — not bullet-point summaries
+      - Every factual claim must reference its evidence
+      - Where confidence was adjusted during verification, note the
+        original and adjusted values with rationale
+      - Do not hedge with phrases like "it is important to note" or
+        "it should be considered" — state what the evidence shows
+      - Use tables when comparing alternatives or presenting structured
+        data
+      - Flag high-severity verification issues prominently
+
+      Write the rendered report as the `report` output artifact.
+    inputs:
+      topic: "${{ inputs.topic }}"
+      depth: "${{ inputs.depth }}"
+      perspectives: "${{ tasks.plan.outputs.perspectives }}"
+      plan: "${{ tasks.plan.outputs.questions }}"
+      findings: "${{ tasks.verify.outputs.verified_findings }}"
+      issues: "${{ tasks.verify.outputs.issues }}"
+      open_questions: "${{ tasks.verify.outputs.open_questions }}"
+      scores: "${{ tasks.research.outputs.scores }}"
+      coverage_summary: "${{ tasks.research.outputs.summary }}"
+      verification_summary: "${{ tasks.verify.outputs.verification_summary }}"
+      information_gain: "${{ tasks.research.outputs.information_gain }}"
+      converged: "${{ tasks.research.loop.converged }}"
+    outputs:
+      summary: "${{ result.summary }}"
+      schema:
+        report:
+          kind: artifact
+          content-type: text/markdown
+          description: Structured markdown research report
+          required: true
+        summary:
+          type: string
+          description: Executive summary of the research
 outputs:
-  findings: ${{ tasks.research.outputs.findings }}
-  gaps: ${{ tasks.research.outputs.gaps }}
+  report: ${{ tasks.synthesize.outputs.report }}
+  summary: ${{ tasks.synthesize.outputs.summary }}
+  findings: ${{ tasks.verify.outputs.verified_findings }}
+  issues: ${{ tasks.verify.outputs.issues }}
+  open_questions: ${{ tasks.verify.outputs.open_questions }}
+  scores: ${{ tasks.research.outputs.scores }}
   completeness: ${{ tasks.research.outputs.completeness }}
-  summary: ${{ tasks.research.outputs.summary }}
+  information_gain: ${{ tasks.research.outputs.information_gain }}
   converged: ${{ tasks.research.loop.converged }}
