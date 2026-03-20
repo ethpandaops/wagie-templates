@@ -1,0 +1,232 @@
+name: ethpandaops/code-review-fix-loop
+version: "1.0"
+description: >-
+  Use when code needs iterative improvement via committee review; reviews with
+  the full persona panel, fixes flagged issues, re-reviews until the committee
+  approves or iterations are exhausted. Tracks findings-count decay for
+  convergence.
+tags: ["code-review", "fix-loop", "iterative", "convergence"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 2m
+inputs:
+  diff:
+    type: artifact
+    required: true
+    description: "Git diff output or equivalent patch content (e.g. git diff main...HEAD)"
+  personas:
+    type: array
+    description: Array of reviewer personas for the committee
+    default:
+      - role: Security Auditor
+        focus: "Injection flaws, authentication/authorization gaps, secrets exposure, input validation, OWASP Top 10"
+        principles: "Assume code is vulnerable until proven otherwise. Flag any path where untrusted input reaches a sensitive operation without validation."
+        severity_default: high
+      - role: Correctness Reviewer
+        focus: "Logic errors, off-by-one bugs, null/undefined handling, race conditions, edge cases, error propagation"
+        principles: "Mentally execute each code path. Ask what happens with empty input, maximum values, concurrent access, and partial failures."
+        severity_default: high
+      - role: Performance Engineer
+        focus: "Algorithmic complexity, N+1 queries, unnecessary allocations, missing caching, blocking operations in hot paths"
+        principles: "Flag obvious inefficiencies but do not speculate without evidence. Measure before optimizing — unless the cost is clearly O(n^2) or worse."
+        severity_default: medium
+      - role: Maintainability Reviewer
+        focus: "Naming clarity, function length, code duplication, coupling between modules, test coverage gaps"
+        principles: "Code is read far more than written. Prefer clear over clever. Each function should have one reason to change."
+        severity_default: medium
+      - role: General Reviewer
+        focus: "Any issue not covered by specialist reviewers — integration problems, API misuse, business logic errors, unexpected interactions between components, missing validation at system boundaries"
+        principles: "Review without a specific lens. Look for what the specialists would miss. Focus on how the pieces fit together, not how each piece works in isolation."
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          role:
+            type: string
+          focus:
+            type: string
+          principles:
+            type: string
+          severity_default:
+            type: string
+            description: "Default severity for findings from this persona"
+          model:
+            type: string
+            description: "Preferred model for this reviewer (e.g. claude-opus-4-6, gpt-5.3)"
+          provider:
+            type: string
+            description: "Preferred provider for this reviewer (e.g. claudecode, codex)"
+        required: [role, focus]
+  repo:
+    type: string
+    description: "Repository identifier (e.g. owner/name) for context"
+  ref:
+    type: string
+    description: "Git ref being reviewed (e.g. branch name, PR number)"
+  context:
+    type: string
+    description: Optional repository or architectural context
+  max_iterations:
+    type: number
+    default: 3
+    description: Maximum review-fix iterations (research shows 2-3 captures 75-87% of fixable issues)
+  threshold:
+    type: number
+    default: 90
+    description: Minimum committee average score to approve
+tasks:
+  improve:
+    loop:
+      max: "${{ inputs.max_iterations }}"
+      init:
+        current_code: "${{ inputs.diff }}"
+        score: "${{ 0 }}"
+        findings_count: "${{ 999 }}"
+        prev_findings_count: "${{ 999 }}"
+        iteration_log: "${{ '' }}"
+        false_positive_count: "${{ 0 }}"
+      until: "${{ (loop.score >= inputs.threshold && loop.findings_count == 0) || (loop.findings_count > loop.prev_findings_count && loop.prev_findings_count < 999) }}"
+      on-max-exhausted: continue
+    inputs:
+      diff: "${{ loop.current_code }}"
+      personas: "${{ inputs.personas }}"
+      repo: "${{ has(inputs.repo) ? inputs.repo : '' }}"
+      ref: "${{ has(inputs.ref) ? inputs.ref : '' }}"
+      context: "${{ has(inputs.context) ? inputs.context : '' }}"
+      threshold: "${{ inputs.threshold }}"
+      prev_findings_count: "${{ loop.findings_count }}"
+      prev_log: "${{ loop.iteration_log }}"
+      prev_fp_count: "${{ loop.false_positive_count }}"
+    tasks:
+      review:
+        uses: ethpandaops/code-review-committee@1
+        inputs:
+          diff: "${{ inputs.diff }}"
+          personas: "${{ inputs.personas }}"
+          repo: "${{ inputs.repo }}"
+          ref: "${{ inputs.ref }}"
+          context: "${{ inputs.context }}"
+          threshold: "${{ inputs.threshold }}"
+        outputs:
+          average_score: average_score
+          verdict: verdict
+          findings: findings
+          summary: summary
+      fix:
+        needs: [review]
+        if: "${{ tasks.review.outputs.verdict != 'approve' }}"
+        worker: {match: "'coding' in skills"}
+        run: apply-review-fixes
+        quality-gate: "${{ has(result.revised_code) && size(result.revised_code) > 0 }}"
+        instructions: |
+          You are a skilled developer addressing code review findings.
+
+          Apply the minimum targeted changes to resolve the flagged issues.
+          Do not refactor, restructure, or improve code beyond what the
+          findings require. Each fix should be traceable to a specific finding.
+
+          Prioritize fixes by severity: critical > high > medium > low.
+          If a fix would conflict with another finding, note the conflict
+          and choose the safer option.
+
+          If any finding looks like a false positive (the code is actually
+          correct, or fixing it would break something else, or the reviewer
+          misunderstood the intent), do NOT fix it. Instead list it in
+          false_positives with your reasoning. Recurring false positives
+          across iterations signal issues the reviewers cannot resolve.
+
+          Return the complete revised code, not just patches.
+        inputs:
+          diff: "${{ inputs.diff }}"
+          findings: "${{ tasks.review.outputs.findings }}"
+          context: "${{ inputs.context }}"
+        outputs:
+          revised_code: "${{ result.revised_code }}"
+          fixes_applied: "${{ result.fixes_applied }}"
+          false_positives: "${{ result.false_positives }}"
+          schema:
+            revised_code:
+              kind: artifact
+              description: Complete revised code with fixes applied
+              required: true
+            fixes_applied:
+              type: array
+              items:
+                type: object
+                properties:
+                  finding:
+                    type: string
+                    description: The finding that was addressed
+                  change:
+                    type: string
+                    description: What was changed and why
+                required: [finding, change]
+              description: Log of fixes applied in this iteration
+            false_positives:
+              type: array
+              items:
+                type: object
+                properties:
+                  finding:
+                    type: string
+                    description: The finding dismissed as false positive
+                  reasoning:
+                    type: string
+                    description: Why this is a false positive
+                required: [finding, reasoning]
+              description: Findings the developer believes are incorrect or unfixable
+      log_iteration:
+        needs: [review, fix]
+        run: log-review-iteration
+        quality-gate: "${{ has(result.iteration_summary) && size(result.iteration_summary) > 0 }}"
+        instructions: |
+          Produce a one-line summary of this review-fix iteration including:
+          score, findings count, fixes applied, and whether findings decreased
+          from the previous round (converging) or increased (regressing).
+        inputs:
+          score: "${{ tasks.review.outputs.average_score }}"
+          verdict: "${{ tasks.review.outputs.verdict }}"
+          findings_count: "${{ tasks.review.outputs.findings.size() }}"
+          fixes_applied: "${{ has(tasks.fix.outputs.fixes_applied) ? tasks.fix.outputs.fixes_applied.size() : 0 }}"
+          prev_findings_count: "${{ inputs.prev_findings_count }}"
+        outputs:
+          iteration_summary: "${{ result.iteration_summary }}"
+          schema:
+            iteration_summary:
+              type: string
+              description: One-line summary of this iteration
+    outputs:
+      current_code: "${{ has(tasks.fix.outputs.revised_code) ? tasks.fix.outputs.revised_code : inputs.diff }}"
+      score: "${{ tasks.review.outputs.average_score }}"
+      findings_count: "${{ tasks.review.outputs.findings.size() }}"
+      prev_findings_count: "${{ inputs.prev_findings_count }}"
+      iteration_log: "${{ inputs.prev_log + '\n' + tasks.log_iteration.outputs.iteration_summary }}"
+      false_positive_count: "${{ inputs.prev_fp_count + (has(tasks.fix.outputs.false_positives) ? tasks.fix.outputs.false_positives.size() : 0) }}"
+      schema:
+        current_code:
+          type: string
+        score:
+          type: number
+        findings_count:
+          type: number
+        prev_findings_count:
+          type: number
+        iteration_log:
+          type: string
+        false_positive_count:
+          type: number
+outputs:
+  result: ${{ tasks.improve.outputs.current_code }}
+  score: ${{ tasks.improve.outputs.score }}
+  converged: ${{ tasks.improve.loop.converged }}
+  iterations_used: ${{ tasks.improve.loop.iteration }}
+  iteration_log: ${{ tasks.improve.outputs.iteration_log }}
+  false_positive_count: ${{ tasks.improve.outputs.false_positive_count }}

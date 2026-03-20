@@ -1,0 +1,199 @@
+name: ethpandaops/code-review-adversarial
+version: "1.0"
+description: >-
+  Use when code needs rigorous adversarial review; an optimistic actor generates
+  or improves code while a paranoid critic finds vulnerabilities, iterating until
+  the critic approves or rounds are exhausted.
+tags: ["code-review", "adversarial", "actor-critic", "red-team"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 2m
+inputs:
+  diff:
+    type: artifact
+    required: true
+    description: "Git diff output or equivalent patch content (e.g. git diff main...HEAD)"
+  focus:
+    type: string
+    default: "security, correctness, error handling, edge cases"
+    description: What the adversarial critic should focus on
+  repo:
+    type: string
+    description: "Repository identifier (e.g. owner/name) for context"
+  ref:
+    type: string
+    description: "Git ref being reviewed (e.g. branch name, PR number)"
+  context:
+    type: string
+    description: Optional repository or architectural context
+  max_rounds:
+    type: number
+    default: 3
+    description: Maximum actor-critic rounds (3-5 eliminates 90%+ of issues)
+tasks:
+  adversarial:
+    loop:
+      max: "${{ inputs.max_rounds }}"
+      init:
+        current_code: "${{ inputs.diff }}"
+        approved: "${{ false }}"
+        findings_history: "${{ '' }}"
+        round_scores: "${{ '' }}"
+      until: "${{ loop.approved }}"
+      on-max-exhausted: continue
+    inputs:
+      diff: "${{ loop.current_code }}"
+      focus: "${{ inputs.focus }}"
+      repo: "${{ has(inputs.repo) ? inputs.repo : '' }}"
+      ref: "${{ has(inputs.ref) ? inputs.ref : '' }}"
+      context: "${{ has(inputs.context) ? inputs.context : '' }}"
+      findings_history: "${{ loop.findings_history }}"
+      prev_round_scores: "${{ loop.round_scores }}"
+    tasks:
+      critic:
+        worker: {match: "'reasoning' in capabilities"}
+        run: adversarial-code-critic
+        quality-gate: "${{ has(result.approved) && result.score >= 0 && result.score <= 100 && has(result.findings) && has(result.reasoning) && size(result.reasoning) > 0 }}"
+        instructions: |
+          You are a paranoid, adversarial code critic. Your default stance is
+          that the code is broken, vulnerable, or incorrect until you are
+          convinced otherwise.
+
+          SCOPE: Only flag issues in lines that were added or modified in the
+          diff (lines starting with +). Do not flag issues in unchanged
+          context lines.
+
+          Your review must be thorough and hostile — actively try to break
+          the code mentally. Think like an attacker, a malicious user, a
+          chaotic production environment.
+
+          For each issue found:
+          - Describe the exact attack vector, failure mode, or edge case
+          - Show a concrete example of how it fails or can be exploited
+          - Rate severity: critical (exploitable/data-loss), high (likely
+            failure), medium (edge case), low (hardening opportunity)
+
+          Approve ONLY when you cannot find any critical or high severity
+          issues. Medium and low issues alone are not grounds for rejection.
+
+          If previous findings were addressed, verify the fixes actually
+          work and did not introduce new problems. Do not re-flag issues
+          that were properly fixed.
+
+          Score: 90+ for approval-worthy, 70-89 minor issues only,
+          50-69 notable problems, below 50 serious concerns.
+        inputs:
+          diff: "${{ inputs.diff }}"
+          focus: "${{ inputs.focus }}"
+          repo: "${{ inputs.repo }}"
+          ref: "${{ inputs.ref }}"
+          context: "${{ inputs.context }}"
+          findings_history: "${{ inputs.findings_history }}"
+        outputs:
+          approved: "${{ result.approved }}"
+          score: "${{ result.score }}"
+          findings: "${{ result.findings }}"
+          reasoning: "${{ result.reasoning }}"
+          schema:
+            approved:
+              type: boolean
+              description: Whether the critic approves the code
+            score:
+              type: number
+              description: Critic's score 0-100
+            findings:
+              type: array
+              items:
+                type: object
+                properties:
+                  severity:
+                    type: string
+                    enum: [critical, high, medium, low]
+                  location:
+                    type: string
+                    description: "File path and line reference (e.g. src/auth.ts:42)"
+                  observation:
+                    type: string
+                  attack_vector:
+                    type: string
+                    description: How the issue can be triggered or exploited
+                  suggestion:
+                    type: string
+                required: [severity, location, observation, suggestion]
+              description: Issues found by the adversarial critic
+            reasoning:
+              type: string
+              description: Critic's overall assessment
+      actor:
+        needs: [critic]
+        if: "${{ tasks.critic.outputs.approved != true }}"
+        worker: {match: "'coding' in skills"}
+        run: adversarial-code-actor
+        quality-gate: "${{ has(result.revised_code) && size(result.revised_code) > 0 }}"
+        instructions: |
+          You are an optimistic, skilled developer responding to an
+          adversarial review. The critic is paranoid by design — take their
+          findings seriously but apply engineering judgment.
+
+          For each finding:
+          - If the attack vector is real: fix it with the simplest correct
+            solution
+          - If the finding is valid but the severity is overstated: fix it
+            anyway, the cost of fixing is low
+          - If the finding is a false positive: leave the code unchanged
+            but note why in your response
+
+          Do not over-engineer defenses. A targeted fix is better than a
+          rewrite. Do not add complexity beyond what the findings require.
+
+          Return the complete revised code with all fixes applied.
+        inputs:
+          diff: "${{ inputs.diff }}"
+          findings: "${{ tasks.critic.outputs.findings }}"
+          context: "${{ inputs.context }}"
+        outputs:
+          revised_code: "${{ result.revised_code }}"
+          fixes_applied: "${{ result.fixes_applied }}"
+          false_positives: "${{ result.false_positives }}"
+          schema:
+            revised_code:
+              kind: artifact
+              description: Complete code with fixes applied
+              required: true
+            fixes_applied:
+              type: array
+              items:
+                type: string
+              description: List of fixes applied
+            false_positives:
+              type: array
+              items:
+                type: string
+              description: Findings dismissed as false positives with reasoning
+    outputs:
+      current_code: "${{ has(tasks.actor.outputs.revised_code) ? tasks.actor.outputs.revised_code : inputs.diff }}"
+      approved: "${{ tasks.critic.outputs.approved }}"
+      findings_history: "${{ inputs.findings_history + '\n---Round---\nScore: ' + string(tasks.critic.outputs.score) + '\n' + tasks.critic.outputs.reasoning }}"
+      round_scores: "${{ inputs.prev_round_scores + string(tasks.critic.outputs.score) + ',' }}"
+      schema:
+        current_code:
+          type: string
+        approved:
+          type: boolean
+        findings_history:
+          type: string
+        round_scores:
+          type: string
+outputs:
+  result: ${{ tasks.adversarial.outputs.current_code }}
+  approved: ${{ tasks.adversarial.outputs.approved }}
+  converged: ${{ tasks.adversarial.loop.converged }}
+  rounds_used: ${{ tasks.adversarial.loop.iteration }}
+  findings_history: ${{ tasks.adversarial.outputs.findings_history }}

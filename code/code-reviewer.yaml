@@ -1,0 +1,156 @@
+name: ethpandaops/code-reviewer
+version: "1.0"
+description: >-
+  Use when code needs review from a single specialized perspective; applies a
+  detailed reviewer persona with focus area and principles to produce scored
+  findings.
+tags: ["code-review", "persona", "reviewer"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 2m
+inputs:
+  diff:
+    type: artifact
+    required: true
+    description: "Git diff output or equivalent patch content (e.g. git diff main...HEAD)"
+  persona:
+    type: object
+    required: true
+    description: Reviewer persona defining role, focus area, and review principles
+    schema:
+      type: object
+      properties:
+        role:
+          type: string
+          description: "Reviewer role title (e.g. Security Auditor, Performance Engineer)"
+        focus:
+          type: string
+          description: "Specific areas to examine (e.g. SQL injection, XSS, secrets, OWASP Top 10)"
+        principles:
+          type: string
+          description: "Review stance and guiding principles (e.g. Assume vulnerable until proven otherwise)"
+        severity_default:
+          type: string
+          description: "Default severity for findings from this persona (critical, high, medium, low)"
+        model:
+          type: string
+          description: "Preferred model for this reviewer (e.g. claude-opus-4-6, gpt-5.3)"
+        provider:
+          type: string
+          description: "Preferred provider for this reviewer (e.g. claudecode, codex)"
+      required: [role, focus]
+  threshold:
+    type: number
+    default: 90
+    description: Minimum score to pass (0-100)
+  repo:
+    type: string
+    description: "Repository identifier (e.g. owner/name) for context"
+  ref:
+    type: string
+    description: "Git ref being reviewed (e.g. branch name, PR number)"
+  context:
+    type: string
+    description: Optional repository or architectural context to inform the review
+tasks:
+  review:
+    worker:
+      match: >-
+        'reasoning' in capabilities
+        && (!has(inputs.persona.provider) || inputs.persona.provider == '' || inputs.persona.provider in providers)
+        && (!has(inputs.persona.model) || inputs.persona.model == '' || inputs.persona.model in models)
+    run: persona-code-review
+    quality-gate: "${{ result.score >= 0 && result.score <= 100 && has(result.verdict) && (result.verdict == 'pass' || result.verdict == 'fail') && has(result.findings) && has(result.reasoning) && size(result.reasoning) > 0 }}"
+    instructions: |
+      You are a code reviewer with deep expertise in your assigned specialty.
+      Adopt the persona fully — your role, focus area, and principles define
+      what you look for and how critically you assess.
+
+      CRITICAL RULE: Only flag issues in lines that were added or modified
+      in the diff (lines starting with +). Do not flag issues in unchanged
+      context lines — those are outside the scope of this review.
+
+      Review process:
+      1. Read the diff through the lens of your persona's focus area
+      2. Apply your principles as the standard for judgment
+      3. Identify specific issues with exact locations (file:line)
+      4. Assess severity based on real-world impact, not pedantry — if the
+         persona specifies a severity_default, use it unless the finding
+         clearly warrants a different level
+      5. Suggest concrete fixes, not vague recommendations
+      6. Acknowledge strengths where the code handles your focus area well
+
+      Scoring calibration (0-100 scale):
+      - 90-100: No issues in your focus area, exemplary practices
+      - 70-89: Minor issues only, generally well-handled
+      - 50-69: Notable issues that should be addressed before merge
+      - 30-49: Significant problems requiring rework
+      - 0-29: Critical issues, unsafe to merge
+
+      Each finding must reference specific lines from the diff. Do not flag
+      issues outside your persona's focus area — stay in your lane. If the
+      diff has no relevance to your specialty, score 90+ and say so.
+
+      Set verdict to "pass" if score >= threshold, "fail" otherwise.
+    inputs:
+      diff: "${{ inputs.diff }}"
+      persona: "${{ inputs.persona }}"
+      threshold: "${{ inputs.threshold }}"
+      repo: "${{ has(inputs.repo) ? inputs.repo : '' }}"
+      ref: "${{ has(inputs.ref) ? inputs.ref : '' }}"
+      context: "${{ has(inputs.context) ? inputs.context : '' }}"
+    outputs:
+      score: "${{ result.score }}"
+      verdict: "${{ result.verdict }}"
+      findings: "${{ result.findings }}"
+      reasoning: "${{ result.reasoning }}"
+      reviewer_role: "${{ inputs.persona.role }}"
+      schema:
+        score:
+          type: number
+          description: Review score from 0 to 100
+        verdict:
+          type: string
+          enum: [pass, fail]
+          description: Whether the code passes this reviewer's assessment
+        findings:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum: [issue, strength]
+              severity:
+                type: string
+                enum: [critical, high, medium, low, info]
+              location:
+                type: string
+                description: File path and line or code reference
+              observation:
+                type: string
+              impact:
+                type: string
+              suggestion:
+                type: string
+            required: [type, severity, location, observation, impact]
+          description: Specific findings from this reviewer's perspective
+        reasoning:
+          type: string
+          description: Overall assessment from this persona's perspective
+        reviewer_role:
+          type: string
+          description: The persona role that produced this review
+outputs:
+  score: ${{ tasks.review.outputs.score }}
+  verdict: ${{ tasks.review.outputs.verdict }}
+  findings: ${{ tasks.review.outputs.findings }}
+  reasoning: ${{ tasks.review.outputs.reasoning }}
+  reviewer_role: ${{ tasks.review.outputs.reviewer_role }}
