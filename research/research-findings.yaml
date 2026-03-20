@@ -1,8 +1,8 @@
 name: ethpandaops/research-findings
 version: "1.0"
 description: >-
-  Use when a topic needs a typed batch of research findings; returns incremental findings focused on breadth first and then explicit gap closure.
-tags: ["research", "findings"]
+  Use when a topic needs a typed batch of research findings; returns incremental findings with evidence quality metadata, focused on breadth first and then explicit gap closure.
+tags: ["research", "findings", "evidence"]
 defaults:
   retry:
     max: 1
@@ -33,6 +33,12 @@ inputs:
             type: string
           confidence:
             type: number
+          source_type:
+            type: string
+          evidence_strength:
+            type: string
+          corroboration:
+            type: number
           contradictions:
             type: string
         required: [claim, evidence, confidence]
@@ -43,25 +49,83 @@ inputs:
     schema:
       type: array
       items:
-        type: string
+        type: object
+        properties:
+          question:
+            type: string
+          priority:
+            type: string
+          difficulty:
+            type: string
+        required: [question]
+  plan_questions:
+    type: array
+    default: []
+    description: Sub-questions from the research plan to target
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          question:
+            type: string
+          perspective:
+            type: string
+          priority:
+            type: string
+          difficulty:
+            type: string
+        required: [question]
 tasks:
   investigate:
     worker: {match: "'research' in skills"}
     run: research
-    quality-gate: "${{ has(result.findings) }}"
+    quality-gate: "${{ has(result.findings) && size(result.findings) > 0 }}"
     instructions: |
-      Produce a batch of research findings for the topic.
+      You are an investigative researcher. Your job is to produce
+      substantive, evidence-backed findings — not summaries or
+      overviews.
 
-      Rules:
-      - If previous_findings is empty, build a broad initial foundation
+      Strategy:
+      - If previous_findings is empty and plan_questions are provided,
+        work through plan questions in priority order, building a broad
+        foundation across multiple perspectives
+      - If previous_findings is empty and no plan exists, survey the
+        topic broadly: identify the major dimensions, key debates, and
+        foundational facts
       - If gaps are provided, prioritize filling those gaps specifically
-      - Do not repeat or restate previous findings
-      - Prefer fewer substantive findings over many thin findings
-      - Flag contradictions when relevant
+        — do not re-explore already-covered territory
+      - Prefer fewer substantive findings over many thin ones
+
+      Evidence standards:
+      - Every claim must cite specific evidence, not general knowledge
+      - Assess each source: is it primary research, secondary analysis,
+        or speculation? Record this as source_type
+      - Rate evidence_strength honestly: strong means multiple credible
+        sources agree; moderate means some support exists; weak means
+        limited or indirect support only
+      - When multiple independent sources support a claim, record how
+        many as corroboration
+      - When sources contradict each other, surface the contradiction
+        explicitly — do not silently pick a side
+
+      Epistemic discipline:
+      - Distinguish between established facts, expert consensus with
+        debate, emerging or contested findings, and your inference
+      - If you cannot find evidence for something, say so rather than
+        filling with plausible-sounding claims
+      - Do not hedge with phrases like "it is important to note" — be
+        direct about what the evidence shows and where it is uncertain
+      - Form concrete assessments. Vague conclusions like "there are
+        pros and cons" are not findings
+
+      Do NOT repeat or restate previous findings. Every finding in
+      your batch must be substantively new.
     inputs:
       topic: "${{ inputs.topic }}"
       previous_findings: "${{ inputs.previous_findings }}"
       gaps: "${{ inputs.gaps }}"
+      plan_questions: "${{ inputs.plan_questions }}"
     outputs:
       findings: "${{ result.findings }}"
       schema:
@@ -72,13 +136,28 @@ tasks:
             properties:
               claim:
                 type: string
+                description: The specific factual claim
               evidence:
                 type: string
+                description: Specific evidence supporting the claim
               confidence:
                 type: number
+                description: 0-100 confidence in the claim
+              source_type:
+                type: string
+                enum: [primary, secondary, tertiary, inference]
+                description: Type of source backing the claim
+              evidence_strength:
+                type: string
+                enum: [strong, moderate, weak]
+                description: How well evidence supports the claim
+              corroboration:
+                type: number
+                description: Number of independent sources supporting the claim
               contradictions:
                 type: string
-            required: [claim, evidence, confidence]
+                description: Known contradicting evidence or viewpoints
+            required: [claim, evidence, confidence, source_type, evidence_strength]
           description: Incremental research findings
 outputs:
   findings: ${{ tasks.investigate.outputs.findings }}
