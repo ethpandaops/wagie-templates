@@ -75,6 +75,18 @@ inputs:
     type: boolean
     default: true
     description: Whether to remove the Kurtosis enclave after reproduction
+  debug_model:
+    type: string
+    description: "Model for debug investigation (e.g. claude-opus-4-6). Benefits from strong reasoning."
+  debug_provider:
+    type: string
+    description: "Provider for debug investigation (e.g. claudecode, codex)"
+  repro_model:
+    type: string
+    description: "Model for reproduction tasks (e.g. claude-sonnet-4-6). Tool-heavy; cheaper models work well."
+  repro_provider:
+    type: string
+    description: "Provider for reproduction tasks (e.g. claudecode, codex)"
 tasks:
   debug_devnet:
     uses: ethpandaops/devnet-debug@1
@@ -189,8 +201,8 @@ tasks:
     instructions: |-
       Attempt to reproduce the reported bug in the launched Kurtosis Ethereum network.
 
-      Use the `kurtosis` CLI as the primary tool surface for this task.
-      Use the `panda` binary when you need to surface network or devnet information during reproduction.
+      Use the `kurtosis` CLI as the primary tool surface for enclave operations.
+      Use the `panda` CLI and MCP tools when you need to surface network or devnet information.
 
       Focus on:
       - whether the described failure can be observed

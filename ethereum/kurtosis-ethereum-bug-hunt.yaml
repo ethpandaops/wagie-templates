@@ -85,6 +85,18 @@ inputs:
     type: boolean
     default: true
     description: Whether to remove the enclave after the hunt
+  config_model:
+    type: string
+    description: "Model for config design (e.g. claude-opus-4-6). Benefits from strong reasoning."
+  config_provider:
+    type: string
+    description: "Provider for config design (e.g. claudecode, codex)"
+  hunt_model:
+    type: string
+    description: "Model for bug hunting (e.g. claude-opus-4-6). Benefits from strong reasoning and tool use."
+  hunt_provider:
+    type: string
+    description: "Provider for bug hunting (e.g. claudecode, codex)"
 tasks:
   lifecycle:
     uses: ethpandaops/kurtosis-ethereum-network-lifecycle@1
@@ -128,16 +140,32 @@ tasks:
     instructions: |-
       Hunt for candidate bugs, regressions, or anomalies in the Kurtosis Ethereum network.
 
-      Use the `kurtosis` CLI as the primary tool surface for this task.
-      Use the `panda` binary when you need to surface network or devnet information during the hunt.
+      Use the `kurtosis` CLI as the primary tool surface for enclave operations.
+      Use the `panda` CLI and MCP tools for network analysis when available.
 
-      Focus on:
-      - stalled or unhealthy network behavior
-      - cross-client inconsistencies
-      - service failures or missing expected capabilities
-      - suspicious signs worth handing to a deeper investigation flow
+      ## Phase 1 — BASELINE
+      Establish what "healthy" looks like for this network configuration.
+      Check all services are RUNNING, CL/EL nodes are synced, and finality is progressing.
 
-      Keep findings concrete and prioritize the most actionable candidates.
+      ## Phase 2 — PROBE
+      Systematically check for anomalies:
+      - Cross-client inconsistencies: compare head slots, finality checkpoints, and peer counts across nodes.
+      - Service failures: any service not in RUNNING state or returning errors.
+      - Finality and participation: is the network finalizing? Is participation above 66.7%?
+      - Fork detection: are all nodes on the same fork?
+      - Log anomalies: check CL error logs for unexpected patterns.
+
+      ## Phase 3 — CLASSIFY
+      For each finding, classify:
+      - Severity (critical/high/medium/low)
+      - Affected scope (specific client, specific node, network-wide)
+      - Whether it warrants deeper investigation via devnet-debug
+
+      Evidence rules:
+      - Every finding MUST reference a specific tool output from this session.
+      - Keep findings concrete and prioritize the most actionable candidates.
+
+      Write a rendered markdown bug hunt report as the `report` output artifact.
     inputs:
       enclave_name: ${{ inputs.enclave_name }}
       goal: ${{ inputs.goal }}
@@ -148,10 +176,16 @@ tasks:
       service_names: ${{ tasks.lifecycle.outputs.service_names }}
       public_endpoints: ${{ tasks.lifecycle.outputs.public_endpoints }}
     outputs:
+      report: "${{ has(result.report) ? result.report : '' }}"
       findings: "${{ has(result.findings) ? result.findings : [] }}"
       summary: ${{ result.summary }}
       recommended_actions: "${{ has(result.recommended_actions) ? result.recommended_actions : [] }}"
       schema:
+        report:
+          kind: artifact
+          content-type: text/markdown
+          description: Bug hunt report with findings, summaries, and recommended actions
+          required: true
         findings:
           type: array
           items:
@@ -191,6 +225,7 @@ outputs:
   effective_client_pairs: "${{ has(tasks.lifecycle.outputs.effective_client_pairs) ? tasks.lifecycle.outputs.effective_client_pairs : [] }}"
   fallback_pair_added: "${{ has(tasks.lifecycle.outputs.fallback_pair_added) ? tasks.lifecycle.outputs.fallback_pair_added : false }}"
   launch_summary: ${{ tasks.lifecycle.outputs.launch_summary }}
+  report: ${{ tasks.hunt_bugs.outputs.report }}
   findings: ${{ tasks.hunt_bugs.outputs.findings }}
   summary: ${{ tasks.hunt_bugs.outputs.summary }}
   recommended_actions: ${{ tasks.hunt_bugs.outputs.recommended_actions }}

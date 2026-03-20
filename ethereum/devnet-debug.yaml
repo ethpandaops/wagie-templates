@@ -28,6 +28,24 @@ inputs:
       type: array
       items:
         type: string
+  context_model:
+    type: string
+    description: "Model for context and baseline tasks (e.g. claude-sonnet-4-6). Tool-heavy; cheaper models work well."
+  context_provider:
+    type: string
+    description: "Provider for context and baseline tasks (e.g. claudecode, codex)"
+  investigation_model:
+    type: string
+    description: "Model for investigation tasks (e.g. claude-opus-4-6). Benefits from strong reasoning."
+  investigation_provider:
+    type: string
+    description: "Provider for investigation tasks (e.g. claudecode, codex)"
+  synthesis_model:
+    type: string
+    description: "Model for verification and synthesis (e.g. claude-opus-4-6). Benefits from strong reasoning."
+  synthesis_provider:
+    type: string
+    description: "Provider for synthesis tasks (e.g. claudecode, codex)"
 tasks:
   context:
     uses: ethpandaops/devnet-context@1
@@ -104,7 +122,31 @@ tasks:
     instructions: |-
       Analyze the most likely causes of the finality problem.
 
-      Use the `panda` binary as the primary tool surface for this task.
+      Use the `panda` CLI and MCP tools as the primary tool surface.
+
+      ## Phase 1 — HYPOTHESIZE
+      From the finality evidence, rank the 3 most likely causes as falsifiable hypotheses.
+      State what evidence would confirm or refute each.
+
+      ## Phase 2 — INVESTIGATE
+      For each hypothesis (strongest first), gather targeted evidence using panda:
+      - Participation data: `panda dora overview <network>`, `panda dora epoch <network> <epoch>` (start from head_epoch - 1).
+      - Offline attesters: use `panda execute` with `dora.offline_attesters("<network>", epoch=N)` — check if a single client type dominates.
+      - Node health: `panda ethnode syncing <network> <instance>`, `panda ethnode finality <network> <instance>`.
+      - Log analysis: `panda loki query ethpandaops '{testnet="<network>", instance="<instance>"} |~ "(?i)(CRIT|ERR)" | json | line_format "{{.message}}"' --limit 100`
+      - Multi-node comparison: use `panda execute` with Python for batch queries across instances.
+      - Reference material: `panda search runbooks "finality"` for tested investigation procedures.
+      Stop investigating a hypothesis when it is confirmed or clearly refuted.
+
+      ## Phase 3 — CORRELATE
+      Cross-reference findings. Check for:
+      - Temporal correlation: did the issue start at a specific slot/epoch?
+      - Client clustering: is a single client type responsible?
+      - Signal agreement: do Dora, Loki, and RPC tell the same story?
+
+      ## Phase 4 — CONCLUDE
+      State likely causes ordered from strongest to weakest, plus practical operator actions.
+      Every claim MUST cite a specific tool output from this session.
 
       Finality thresholds:
       - Finality requires >66.7% (2/3) of stake attesting.
@@ -112,16 +154,26 @@ tasks:
       - Concern: >4 epochs without finality.
       - Critical: >8 epochs without finality.
 
-      Consider these cause categories:
+      Cause categories to consider:
       - Low participation: too few validators attesting to cross the 2/3 threshold.
       - Offline or isolated nodes: nodes not participating due to crash, network partition, or misconfiguration.
       - Network split or fork disagreement: validators attesting on different forks, diluting effective participation.
       - Client-specific bug: a single client type failing causes all its validators to miss.
+      - Attestation processing bug: a client spending excessive resources replaying historical states to validate old-target attestations. Signature: CPU spikes on specific client type, attestation count drops, all instances of that client affected similarly.
+      - State size tipping point: validator set growth making state regeneration too expensive. Signature: gradual degradation correlated with validator count increase.
       - Execution-side issue affecting consensus progress: EL errors blocking CL from processing payloads.
       - Transient condition that is already recovering: participation improving epoch-over-epoch.
 
-      Use available CL metrics first, then logs, then direct node validation when needed.
-      Return likely causes ordered from strongest to weakest, plus practical operator actions.
+      Change correlation (investigate early):
+      - Was there a recent client image update, config change, or fork activation near the incident onset?
+      - Does the notes summary mention a recent deploy or parameter change?
+      - If the divergence point is a specific epoch, what changed at that epoch?
+
+      Evidence rules:
+      - Every finding MUST reference a specific tool output from this session.
+      - Do not state conclusions not directly supported by collected evidence.
+      - If evidence is unavailable (tool failure, no data), state that explicitly rather than inferring.
+
       Include concrete instance-level findings using full instance names when identifiable.
       Include concrete log or RPC evidence examples when they materially support the conclusion.
     inputs:
@@ -212,48 +264,70 @@ tasks:
       timeout: 5m
     quality-gate: "${{ has(result.findings_summary) && size(result.findings_summary) > 0 && has(result.suspected_root_cause) && size(result.suspected_root_cause) > 0 }}"
     instructions: |-
-      Investigate the devnet issue deeply using the baseline and the available surfaces.
+      Investigate the devnet issue using the baseline and available surfaces.
 
-      Use the `panda` binary as the primary tool surface for this task.
+      Use the `panda` CLI and MCP tools as the primary tool surface.
+
+      ## Phase 1 — HYPOTHESIZE
+      From the baseline, rank the 3 most likely root causes as falsifiable hypotheses.
+      State what evidence would confirm or refute each.
+
+      ## Phase 2 — INVESTIGATE
+      For each hypothesis (strongest first), gather targeted evidence using panda:
+      - Network overview: `panda dora overview <network>` for epoch, slot, participation, fork status.
+      - Epoch detail: `panda dora epoch <network> <epoch>` — start from head_epoch - 1.
+      - Log analysis: `panda loki query ethpandaops '{testnet="<network>", instance="<instance>"} |~ "(?i)(CRIT|ERR)" | json | line_format "{{.message}}"' --limit 100`
+      - Node health: `panda ethnode syncing <network> <instance>`, `panda ethnode finality <network> <instance>`.
+      - Fork choice: `panda ethnode beacon-get <network> <instance> /eth/v1/debug/fork_choice` for detailed fork state.
+      - Multi-node comparison: use `panda execute` with Python for batch queries across instances.
+      - Reference material: `panda search runbooks "debug devnet"` for tested investigation procedures.
+      Stop investigating a hypothesis when it is confirmed or clearly refuted.
 
       CL-first investigation priority: the network moves forward via the CL — block proposals, attestations, and finality are all CL concerns. Most devnet issues originate at the CL level. Always investigate CL before EL.
 
-      Investigation guidance:
-      - For network-split, compare fork views, divergence timing, and client or instance clustering. Identify the divergence slot/epoch. Examine the first block where forks diverge — what is special about that block?
-      - For offline-nodes, confirm whether nodes are actually unreachable, syncing, isolated, or merely absent from logs.
-      - For finality-delay, correlate participation health, missed slots, and checkpoint disagreement.
-      - For client-bug or execution-issue, compare CL and EL evidence and look for shared patterns by client type.
+      ## Phase 3 — CORRELATE
+      Cross-reference findings across hypotheses. Check for:
+      - Temporal correlation: did the problem start at a specific slot/epoch correlating with a config change, fork boundary, or deployment?
+      - Scope clustering: are affected nodes in the same region, infrastructure, or client type?
+      - Signal agreement: do Dora metrics, Loki logs, and direct RPC observations tell the same story?
+      - Change correlation: was there a recent client image update, config change, or fork activation near the incident onset?
 
-      Hypothesis testing:
-      - Did the problem start at a specific slot/epoch correlating with a config change, fork boundary, or deployment?
-      - Are affected nodes in the same region or infrastructure?
-      - Does the error message match a known client issue?
+      ## Phase 4 — CONCLUDE
+      State the root cause supported by the strongest corroborating evidence.
+      Every claim MUST cite a specific tool output from this session.
+
+      Investigation guidance by issue type:
+      - For network-split: compare fork views, divergence timing, and client or instance clustering. Identify the divergence slot/epoch. Examine the first block where forks diverge — what is special about that block?
+      - For offline-nodes: confirm whether nodes are actually unreachable, syncing, isolated, or merely absent from logs.
+      - For finality-delay: correlate participation health, missed slots, and checkpoint disagreement.
+      - For client-bug or execution-issue: compare CL and EL evidence and look for shared patterns by client type.
 
       Log investigation (when Loki is available):
       - Always use label filters in LogQL queries; unfiltered queries may time out.
       - Query patterns depend on the Loki schema (from `data_profile.loki_schema`):
         * **ethpandaops** (remote): `{testnet="<network>", ethereum_cl="<cl_type>", instance="<instance_name>"} |~ "(?i)(CRIT|ERR)" | json | line_format "{{.message}}"`. Message field fallback: if `{{.message}}` is empty, try `{{.log}}` or `{{.msg}}`. As a last resort, drop `| json | line_format` and use raw lines.
-        * **kurtosis** (local): stream labels (`job`, `service_name`) are shared across all services and cannot distinguish nodes. Use `| json` to parse, then filter on `kurtosis_service_name`. The log content is always in the `log` field. Example: `{job="kurtosis"} | json | kurtosis_service_name="cl-1-teku-geth" | log=~"(?i)(CRIT|ERR)" | line_format "{{.log}}"`. For broader queries: `{job="kurtosis"} | json | kurtosis_service_name=~"cl-.*" | log=~"(?i)(CRIT|ERR)" | line_format "{{.log}}"`.
-      - Log fallback when Loki is unavailable in local mode: use `kurtosis service logs <enclave> <service>` with `--regex-match "<pattern>"` for regex filtering, `--match "<string>"` for literal match, `-n <count>` for line limit, `-v` to invert filter.
-      - Log level escalation: start with CRIT/ERR logs from problematic CL nodes, then WARN, then INFO. Use DEBUG only as a last resort.
-      - EL escalation criteria: only inspect EL logs if CL logs show engine API errors, payload validation failures, or execution-related issues.
+        * **kurtosis** (local): stream labels (`job`, `service_name`) are shared across all services and cannot distinguish nodes. Use `| json` to parse, then filter on `kurtosis_service_name`. The log content is always in the `log` field. Example: `{job="kurtosis"} | json | kurtosis_service_name="cl-1-teku-geth" | log=~"(?i)(CRIT|ERR)" | line_format "{{.log}}"`.
+      - Log fallback when Loki is unavailable in local mode: use `kurtosis service logs <enclave> <service>` with `--regex-match "<pattern>"` for regex filtering.
+      - Log level escalation: start with CRIT/ERR logs from problematic CL nodes, then WARN, then INFO.
       - CL/EL diagnostic matrix:
         * CL errors only → consensus issue (investigate CL)
         * CL engine API errors + EL errors → execution issue (investigate EL)
         * CL clean + EL errors → EL struggling but not the primary cause
         * Both layers erroring → shared dependency or cascade failure
-      - No-logs signal: if Loki returns no logs at all for a node, that is itself a signal. Verify via direct node query (ethnode for remote, localhost port for local) — if the node responds, it runs but is not logging; if unreachable, it is down.
-      - Correlate log timestamps against Dora timeline (when Dora data is available): when did errors start relative to missed slots or participation drops? Do errors correlate with specific epochs or slots? Are errors from one client type or spread across multiple?
 
       RPC validation (when ethnode or direct node access is available):
       - Network split: compare head slots, head roots, and finality checkpoints across fork groups.
       - Node stuck: check sync status and peer counts.
-      - Hypothesis testing: query the specific nodes implicated by the leading hypothesis.
-      - For local Kurtosis: query CL nodes via their localhost beacon API ports and EL nodes via their localhost JSON-RPC ports directly.
+      - For local Kurtosis: query CL nodes via their localhost beacon API ports.
 
       Root cause classification:
       - By scope: single node, client-specific, network split, or widespread.
       - By layer: CL vs EL.
+
+      Evidence rules:
+      - Every finding MUST reference a specific tool output from this session.
+      - Do not state conclusions not directly supported by collected evidence.
+      - If evidence is unavailable (tool failure, no data), state that explicitly rather than inferring.
 
       Use full resolved instance names in findings, not shortened labels.
       Include concrete log excerpts or RPC observations when they materially support the diagnosis.
@@ -335,8 +409,69 @@ tasks:
                 type: string
             required: [source, excerpt, significance]
           description: Concrete log or RPC evidence examples supporting the diagnosis
-  conclude:
+  verify_findings:
     needs: [context, baseline, assess_finality, analyze_finality_causes, investigate_generic]
+    worker: {match: "'reasoning' in capabilities"}
+    run: verify-devnet-findings
+    retry:
+      max: 1
+      on: [error, timeout, schema-validation, quality-gate]
+      backoff:
+        delay: 5s
+        factor: 2
+        max-delay: 20s
+        jitter: true
+      timeout: 2m
+    quality-gate: "${{ has(result.verification_summary) && size(result.verification_summary) > 0 && has(result.issues) }}"
+    instructions: |-
+      Audit the investigation findings before they reach the operator.
+
+      For each claim in the findings:
+      - Is it directly supported by a tool output from this session?
+      - Could the same evidence support a different conclusion?
+      - Are there contradictions between findings?
+
+      Flag issues as:
+      - over-confident: claim stronger than evidence supports
+      - under-supported: claim without cited tool output
+      - contradiction: findings that conflict with each other
+      - missing-perspective: obvious investigation path not taken
+
+      If issues are found, note what the adjusted conclusion should be.
+      If no issues are found, confirm the findings are well-supported.
+    inputs:
+      suspected_issue_type: ${{ tasks.baseline.outputs.suspected_issue_type }}
+      findings_summary: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? tasks.analyze_finality_causes.outputs.summary : tasks.investigate_generic.outputs.findings_summary }}"
+      suspected_root_cause: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? (size(tasks.analyze_finality_causes.outputs.likely_causes) > 0 ? tasks.analyze_finality_causes.outputs.likely_causes[0] : 'finality degradation') : tasks.investigate_generic.outputs.suspected_root_cause }}"
+      evidence: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? tasks.assess_finality.outputs.evidence : tasks.investigate_generic.outputs.evidence }}"
+      recommended_actions: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? tasks.analyze_finality_causes.outputs.recommended_actions : tasks.investigate_generic.outputs.recommended_actions }}"
+    outputs:
+      verification_summary: ${{ result.verification_summary }}
+      issues: "${{ has(result.issues) ? result.issues : [] }}"
+      adjusted_confidence: "${{ has(result.adjusted_confidence) ? result.adjusted_confidence : '' }}"
+      schema:
+        verification_summary:
+          type: string
+          description: Summary of verification audit
+        issues:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum: [over-confident, under-supported, contradiction, missing-perspective]
+              description:
+                type: string
+              suggestion:
+                type: string
+            required: [type, description]
+          description: Issues found during verification
+        adjusted_confidence:
+          type: string
+          description: Adjusted confidence assessment if warranted
+  conclude:
+    needs: [context, baseline, assess_finality, analyze_finality_causes, investigate_generic, verify_findings]
     worker: {match: "'reasoning' in capabilities"}
     run: summarize-devnet-debug
     retry:
@@ -348,7 +483,7 @@ tasks:
         max-delay: 20s
         jitter: true
       timeout: 2m
-    quality-gate: "${{ has(result.summary) && size(result.summary) > 0 }}"
+    quality-gate: "${{ has(result.summary) && size(result.summary) > 100 && has(result.severity) && size(result.severity) > 0 }}"
     instructions: |-
       Produce an operator-ready devnet debug summary.
 
@@ -356,10 +491,14 @@ tasks:
       1. Symptoms: what is happening now (observable behavior).
       2. Root cause: most likely root cause with the concrete evidence that supports it.
       3. Affected scope: which nodes, clients, or forks are involved (use full instance names).
-      4. Dora links: include links to relevant epochs, slots, or validators when Dora data was available.
-      5. Suggested remediation: practical next steps — restart nodes, inspect a specific client, escalate to a client team, or continue observing.
+      4. Confidence caveats: if the verification step flagged issues, note them here.
+      5. Dora links: include links to relevant epochs, slots, or validators when Dora data was available.
+      6. Suggested remediation: practical next steps — restart nodes, inspect a specific client, escalate to a client team, or continue observing.
 
       Be direct and concise. This output should help a principal decide the immediate next action.
+      If the verification raised concerns, adjust the summary's confidence language accordingly.
+
+      Write the rendered debug summary as the `summary` output artifact.
     inputs:
       network_name: ${{ tasks.context.outputs.network_name }}
       problem_statement: ${{ inputs.problem_statement }}
@@ -371,13 +510,17 @@ tasks:
       suspected_root_cause: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? (size(tasks.analyze_finality_causes.outputs.likely_causes) > 0 ? tasks.analyze_finality_causes.outputs.likely_causes[0] : 'finality degradation') : tasks.investigate_generic.outputs.suspected_root_cause }}"
       evidence: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? tasks.assess_finality.outputs.evidence : tasks.investigate_generic.outputs.evidence }}"
       recommended_actions: "${{ tasks.baseline.outputs.suspected_issue_type == 'finality-delay' ? tasks.analyze_finality_causes.outputs.recommended_actions : tasks.investigate_generic.outputs.recommended_actions }}"
+      verification_summary: "${{ has(tasks.verify_findings.outputs.verification_summary) ? tasks.verify_findings.outputs.verification_summary : '' }}"
+      verification_issues: "${{ has(tasks.verify_findings.outputs.issues) ? tasks.verify_findings.outputs.issues : [] }}"
     outputs:
       summary: ${{ result.summary }}
       severity: "${{ has(result.severity) ? result.severity : 'medium' }}"
       schema:
         summary:
-          type: string
+          kind: artifact
+          content-type: text/markdown
           description: Final operator-ready devnet debug summary
+          required: true
         severity:
           type: string
           description: Overall incident severity estimate

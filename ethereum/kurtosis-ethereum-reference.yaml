@@ -28,6 +28,12 @@ inputs:
     type: string
     default: github.com/ethpandaops/ethereum-package
     description: Kurtosis package reference to inspect
+  reference_model:
+    type: string
+    description: "Model for reference retrieval (e.g. claude-sonnet-4-6). Tool-heavy; cheaper models work well."
+  reference_provider:
+    type: string
+    description: "Provider for reference retrieval (e.g. claudecode, codex)"
 tasks:
   fetch_reference:
     worker: {match: "'tool-use' in capabilities"}

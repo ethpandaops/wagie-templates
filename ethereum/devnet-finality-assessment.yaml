@@ -67,6 +67,18 @@ inputs:
       type: array
       items:
         type: string
+  observe_model:
+    type: string
+    description: "Model for finality observation (e.g. claude-sonnet-4-6). Tool-heavy; cheaper models work well."
+  observe_provider:
+    type: string
+    description: "Provider for finality observation (e.g. claudecode, codex)"
+  classify_model:
+    type: string
+    description: "Model for finality classification (e.g. claude-opus-4-6). Benefits from strong reasoning."
+  classify_provider:
+    type: string
+    description: "Provider for finality classification (e.g. claudecode, codex)"
 tasks:
   observe:
     worker: {match: "'tool-use' in capabilities && 'reasoning' in capabilities"}
@@ -75,7 +87,16 @@ tasks:
     instructions: |-
       Assess the network's finality state using the best available sources.
 
-      Use the `panda` binary as the primary tool surface for this task.
+      Use the `panda` CLI and MCP tools as the primary tool surface.
+
+      Panda commands for finality assessment:
+      - Network overview: `panda dora overview <network>` for finalized epoch, head epoch, participation rate.
+      - Epoch detail: `panda dora epoch <network> <epoch>` — start from head_epoch - 1 (head epoch is in-progress).
+      - Missing proposers: use `panda execute` with `dora.missing_proposers("<network>", epoch=N)`.
+      - Offline attesters: use `panda execute` with `dora.offline_attesters("<network>", epoch=N)`.
+      - Finality checkpoints: `panda ethnode finality <network> <instance>` for direct checkpoint queries.
+      - Cross-node comparison: use `panda execute` with Python to compare finality checkpoints across multiple instances.
+      - Reference procedures: `panda search runbooks "finality"` for tested finality investigation procedures.
 
       Finality thresholds:
       - Finality requires >66.7% (2/3) of stake attesting.
@@ -86,9 +107,13 @@ tasks:
       Priorities:
       - Use Dora first when available for finalized epoch, head epoch, participation rates, missed slots, and fork visibility.
       - Head epoch caveat: the head epoch is still in progress and will show artificially low participation. Always start analysis from head epoch - 1.
-      - If Dora is unavailable and nodes are queryable (ethnode for remote, or direct localhost access for local Kurtosis), compare finality checkpoints and sync status across instances directly. Query `/eth/v1/beacon/states/head/finality_checkpoints` and `/eth/v1/node/syncing` on each CL node. Look for checkpoint disagreement.
+      - If Dora is unavailable and nodes are queryable, compare finality checkpoints and sync status across instances directly. Use `panda ethnode finality <network> <instance>` and `panda ethnode syncing <network> <instance>`. Look for checkpoint disagreement.
       - If only Loki is available, infer likely finality blockers from CL error patterns and instance health.
       - Preserve note-derived expectations when they matter for interpreting the finality state.
+
+      Evidence rules:
+      - Every observation MUST reference a specific tool output from this session.
+      - If a data source is unavailable, state that explicitly rather than inferring.
 
       Produce a concise finality summary, epochs-behind estimate, and supporting evidence.
     inputs:
@@ -117,28 +142,25 @@ tasks:
           description: Observations supporting the finality assessment
   classify_status:
     needs: [observe]
-    worker: {match: "'reasoning' in capabilities"}
-    run: classify-devnet-finality-state
-    quality-gate: "${{ has(result.finality_status) && size(result.finality_status) > 0 && result.confidence >= 0 && result.confidence <= 100 && has(result.reasoning) && size(result.reasoning) > 0 }}"
+    uses: wagie/decide@1
     inputs:
-      finality_summary: ${{ tasks.observe.outputs.finality_summary }}
-      epochs_behind: ${{ tasks.observe.outputs.epochs_behind }}
-      evidence: ${{ tasks.observe.outputs.evidence }}
+      question: "Based on the finality observations, what is the current finality state?"
+      context: |-
+        Finality summary: ${{ tasks.observe.outputs.finality_summary }}
+        Epochs behind: ${{ tasks.observe.outputs.epochs_behind }}
+        Evidence: ${{ tasks.observe.outputs.evidence }}
+
+        Finality state diagnostic signatures:
+        - healthy: Finality progressing normally, <=2 epochs behind, participation >66.7%.
+        - delayed: 3-8 epochs behind finality, participation hovering near 66.7%, possible recovery.
+        - stalled: >8 epochs behind, participation well below 66.7%, no recovery trend.
+        - split-driven: Finality delay caused by a network split — validators attesting on different forks dilute effective participation below threshold.
+        - unknown: Evidence insufficient to classify finality state.
+      options: ["healthy", "delayed", "stalled", "split-driven", "unknown"]
     outputs:
-      finality_status: ${{ result.finality_status }}
-      confidence: ${{ result.confidence }}
-      reasoning: ${{ result.reasoning }}
-      schema:
-        finality_status:
-          type: string
-          description: Current finality state classification
-          enum: [healthy, delayed, stalled, split-driven, unknown]
-        confidence:
-          type: number
-          description: Confidence score from 0 to 100
-        reasoning:
-          type: string
-          description: Why this finality state best fits the evidence
+      finality_status: decision
+      confidence: confidence
+      reasoning: reasoning
 outputs:
   finality_status: ${{ tasks.classify_status.outputs.finality_status }}
   finality_status_confidence: ${{ tasks.classify_status.outputs.confidence }}

@@ -71,6 +71,12 @@ inputs:
           count:
             type: number
         required: [el_type, cl_type]
+  config_model:
+    type: string
+    description: "Model for config design (e.g. claude-opus-4-6). Benefits from strong reasoning."
+  config_provider:
+    type: string
+    description: "Provider for config design (e.g. claudecode, codex)"
 tasks:
   replicate_devnet_config:
     if: ${{ inputs.config_mode == 'devnet-profile' }}

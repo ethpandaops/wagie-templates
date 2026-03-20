@@ -50,6 +50,12 @@ inputs:
     type: number
     default: 0
     description: Number of gaps identified in the previous iteration
+  model:
+    type: string
+    description: "Preferred model (e.g. claude-sonnet-4-6)"
+  provider:
+    type: string
+    description: "Preferred provider (e.g. claudecode, codex)"
   plan_questions:
     type: array
     default: []
@@ -68,7 +74,11 @@ inputs:
         required: [question]
 tasks:
   assess:
-    worker: {match: "'reasoning' in capabilities"}
+    worker:
+      match: >-
+        'reasoning' in capabilities
+        && (!has(inputs.provider) || inputs.provider == '' || inputs.provider in providers)
+        && (!has(inputs.model) || inputs.model == '' || inputs.model in models)
     run: assess-coverage
     quality-gate: "${{ has(result.gaps) && has(result.summary) && size(result.summary) > 0 && has(result.completeness) && has(result.scores) }}"
     instructions: |
