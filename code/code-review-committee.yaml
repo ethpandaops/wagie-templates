@@ -1,0 +1,262 @@
+name: ethpandaops/code-review-committee
+version: "1.0"
+description: >-
+  Use when code needs multi-perspective review; fans out reviewer personas in
+  parallel, then a judge deduplicates, resolves conflicts, and produces a
+  unified verdict with confidence scores.
+tags: ["code-review", "committee", "multi-agent", "review-panel"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 2m
+inputs:
+  diff:
+    type: artifact
+    required: true
+    description: "Git diff output or equivalent patch content (e.g. git diff main...HEAD)"
+  personas:
+    type: array
+    description: Array of reviewer personas to form the committee
+    default:
+      - role: Security Auditor
+        focus: "Injection flaws, authentication/authorization gaps, secrets exposure, input validation, OWASP Top 10"
+        principles: "Assume code is vulnerable until proven otherwise. Flag any path where untrusted input reaches a sensitive operation without validation."
+        severity_default: high
+      - role: Correctness Reviewer
+        focus: "Logic errors, off-by-one bugs, null/undefined handling, race conditions, edge cases, error propagation"
+        principles: "Mentally execute each code path. Ask what happens with empty input, maximum values, concurrent access, and partial failures."
+        severity_default: high
+      - role: Performance Engineer
+        focus: "Algorithmic complexity, N+1 queries, unnecessary allocations, missing caching, blocking operations in hot paths"
+        principles: "Flag obvious inefficiencies but do not speculate without evidence. Measure before optimizing — unless the cost is clearly O(n^2) or worse."
+        severity_default: medium
+      - role: Maintainability Reviewer
+        focus: "Naming clarity, function length, code duplication, coupling between modules, test coverage gaps"
+        principles: "Code is read far more than written. Prefer clear over clever. Each function should have one reason to change."
+        severity_default: medium
+      - role: General Reviewer
+        focus: "Any issue not covered by specialist reviewers — integration problems, API misuse, business logic errors, unexpected interactions between components, missing validation at system boundaries"
+        principles: "Review without a specific lens. Look for what the specialists would miss. Focus on how the pieces fit together, not how each piece works in isolation."
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          role:
+            type: string
+          focus:
+            type: string
+          principles:
+            type: string
+          severity_default:
+            type: string
+            description: "Default severity for findings from this persona"
+          model:
+            type: string
+            description: "Preferred model for this reviewer (e.g. claude-opus-4-6, gpt-5.3)"
+          provider:
+            type: string
+            description: "Preferred provider for this reviewer (e.g. claudecode, codex)"
+        required: [role, focus]
+  repo:
+    type: string
+    description: "Repository identifier (e.g. owner/name) for context"
+  ref:
+    type: string
+    description: "Git ref being reviewed (e.g. branch name, PR number)"
+  context:
+    type: string
+    description: Optional repository or architectural context
+  threshold:
+    type: number
+    default: 90
+    description: Minimum average score across reviewers to pass
+tasks:
+  review_panel:
+    strategy:
+      matrix:
+        index: "${{ range(inputs.personas.size()) }}"
+      fail-fast: false
+    inputs:
+      diff: "${{ inputs.diff }}"
+      persona: "${{ inputs.personas[matrix.index] }}"
+      threshold: "${{ inputs.threshold }}"
+      repo: "${{ has(inputs.repo) ? inputs.repo : '' }}"
+      ref: "${{ has(inputs.ref) ? inputs.ref : '' }}"
+      context: "${{ has(inputs.context) ? inputs.context : '' }}"
+    tasks:
+      single_review:
+        uses: ethpandaops/code-reviewer@1
+        inputs:
+          diff: "${{ inputs.diff }}"
+          persona: "${{ inputs.persona }}"
+          threshold: "${{ inputs.threshold }}"
+          repo: "${{ inputs.repo }}"
+          ref: "${{ inputs.ref }}"
+          context: "${{ inputs.context }}"
+        outputs:
+          score: score
+          verdict: verdict
+          findings: findings
+          reasoning: reasoning
+          reviewer_role: reviewer_role
+    outputs:
+      reviews: 'append(${{ {"role": tasks.single_review.outputs.reviewer_role, "score": tasks.single_review.outputs.score, "verdict": tasks.single_review.outputs.verdict, "findings": tasks.single_review.outputs.findings, "reasoning": tasks.single_review.outputs.reasoning} }})'
+      schema:
+        reviews:
+          type: array
+          items:
+            type: object
+            properties:
+              role:
+                type: string
+              score:
+                type: number
+              verdict:
+                type: string
+              findings:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                    severity:
+                      type: string
+                    observation:
+                      type: string
+                    impact:
+                      type: string
+                    suggestion:
+                      type: string
+                  required: [type, severity, observation]
+              reasoning:
+                type: string
+            required: [role, score, verdict, findings, reasoning]
+  judge:
+    needs: [review_panel]
+    worker: {match: "'reasoning' in capabilities"}
+    run: review-committee-judge
+    quality-gate: "${{ result.average_score >= 0 && result.average_score <= 100 && has(result.verdict) && (result.verdict == 'approve' || result.verdict == 'request_changes' || result.verdict == 'reject') && has(result.findings) && has(result.summary) && size(result.summary) > 0 && result.agreement_score >= 0 && result.agreement_score <= 100 }}"
+    instructions: |
+      You are the judge of a code review committee. Multiple specialist
+      reviewers have independently assessed the same code. Your job is to
+      produce a single, authoritative review.
+
+      You will receive reviews from ALL committee members. You MUST process
+      every single review — do not skip, collapse, or summarize over any
+      reviewer. The scores_by_reviewer output MUST contain one entry per
+      reviewer with their exact role and score.
+
+      Process:
+      1. List every reviewer's role and score. Calculate the arithmetic
+         mean of ALL scores — not just one reviewer's score
+      2. Deduplicate findings — when multiple reviewers flag the same
+         code location with similar descriptions, merge into one entry.
+         Preserve the exact file:line location from the original finding.
+         Use the strongest severity among duplicates. Record all agreeing
+         reviewer roles in agreed_by
+      3. Resolve conflicts — when reviewers disagree on severity or
+         whether something is an issue, weigh the specialist in that
+         domain more heavily (e.g. Security Auditor wins on security
+         findings, Performance Engineer wins on performance findings)
+      4. Filter noise — drop findings that meet ALL of these criteria:
+         severity is low or info, only one reviewer flagged it, and the
+         evidence is weak or speculative. Keep low-severity findings if
+         multiple reviewers agree
+      5. Rank remaining findings by severity (critical > high > medium >
+         low) then by confidence (multi-reviewer > single-reviewer)
+      6. Determine verdict: approve (avg >= threshold and no critical
+         findings), request_changes (any critical or high findings),
+         reject (avg < 50 or multiple critical findings)
+
+      For each unified finding, record which reviewers flagged it and
+      assign confidence: 90+ if 3+ reviewers agree, 70-89 if 2 agree,
+      50-69 if only one reviewer flagged it with strong evidence.
+
+      Do not introduce new findings — you are aggregating, not reviewing.
+
+      Finally, compute an agreement_score (0-100) reflecting how aligned the
+      reviewers were. If all scores are within 10 points of each other,
+      agreement is 90+. If scores span 30+ points, agreement is below 50.
+      Low agreement signals the review may need human attention.
+
+      BIAS CHECK: Resist the tendency to soften or dismiss findings during
+      aggregation. If a specialist reviewer flagged an issue in their domain,
+      default to keeping it unless another specialist in the same domain
+      explicitly contradicts it. When in doubt, keep the finding.
+    inputs:
+      reviews: "${{ tasks.review_panel.outputs.reviews }}"
+      threshold: "${{ inputs.threshold }}"
+    outputs:
+      average_score: "${{ result.average_score }}"
+      verdict: "${{ result.verdict }}"
+      findings: "${{ result.findings }}"
+      scores_by_reviewer: "${{ result.scores_by_reviewer }}"
+      agreement_score: "${{ result.agreement_score }}"
+      summary: "${{ result.summary }}"
+      schema:
+        average_score:
+          type: number
+          description: Average score across all reviewers
+        verdict:
+          type: string
+          enum: [approve, request_changes, reject]
+          description: Unified committee verdict
+        findings:
+          type: array
+          items:
+            type: object
+            properties:
+              severity:
+                type: string
+                enum: [critical, high, medium, low, info]
+              location:
+                type: string
+                description: "File path and line reference (e.g. src/auth.ts:42)"
+              observation:
+                type: string
+              impact:
+                type: string
+              suggestion:
+                type: string
+              agreed_by:
+                type: array
+                items:
+                  type: string
+                description: Reviewer roles that flagged this finding
+              confidence:
+                type: number
+                description: Confidence score 0-100 based on reviewer agreement
+            required: [severity, location, observation, impact, suggestion, agreed_by, confidence]
+          description: Deduplicated, ranked findings with agreement tracking
+        scores_by_reviewer:
+          type: array
+          items:
+            type: object
+            properties:
+              role:
+                type: string
+              score:
+                type: number
+            required: [role, score]
+          description: Individual scores from each reviewer
+        agreement_score:
+          type: number
+          description: How aligned reviewers were (0-100). Low scores signal the review needs human attention
+        summary:
+          type: string
+          description: Unified committee assessment
+outputs:
+  average_score: ${{ tasks.judge.outputs.average_score }}
+  verdict: ${{ tasks.judge.outputs.verdict }}
+  findings: ${{ tasks.judge.outputs.findings }}
+  scores_by_reviewer: ${{ tasks.judge.outputs.scores_by_reviewer }}
+  agreement_score: ${{ tasks.judge.outputs.agreement_score }}
+  summary: ${{ tasks.judge.outputs.summary }}

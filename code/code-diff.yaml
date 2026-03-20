@@ -1,0 +1,94 @@
+name: ethpandaops/code-diff
+version: "1.0"
+description: >-
+  Use when a git diff is needed between two refs; clones the repo, determines
+  the target ref automatically if not provided, and produces a diff artifact
+  for downstream review templates.
+tags: ["code-review", "diff", "git"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 2m
+inputs:
+  repo:
+    type: string
+    required: true
+    description: "Source repository (owner/name or full URL)"
+  source_ref:
+    type: string
+    required: true
+    description: "Source branch, tag, or commit SHA to diff"
+  target_repo:
+    type: string
+    description: "Target repository if different from source (for cross-fork diffs)"
+  target_ref:
+    type: string
+    description: "Target branch, tag, or commit to diff against. If omitted, the worker determines the default branch (main/master) automatically."
+tasks:
+  extract_diff:
+    worker: {match: "'tool-use' in capabilities"}
+    run: extract-git-diff
+    quality-gate: "${{ has(result.files_changed) && result.files_changed >= 0 && has(result.summary) && size(result.summary) > 0 }}"
+    instructions: |
+      Produce a git diff between two refs in a repository.
+
+      Steps:
+      1. Clone the source repo. Use `git clone --no-checkout` then fetch
+         both refs to avoid checking out the entire tree unnecessarily.
+      2. If target_ref is empty, determine the repository's default branch:
+         `git symbolic-ref refs/remotes/origin/HEAD | sed 's|refs/remotes/origin/||'`
+         If that fails, try: `git remote show origin | grep 'HEAD branch' | awk '{print $NF}'`
+      3. If target_repo is provided and different from the source repo,
+         add it as a second remote and fetch the target_ref from there.
+      4. Produce the diff. Use the THREE-DOT form to get changes since
+         the refs diverged, not the two-dot form:
+         `git diff <target_ref>...<source_ref>`
+         This correctly shows new files as full additions.
+      5. Write the full diff output to the diff output.
+      6. Get stats with: `git diff --stat <target_ref>...<source_ref>`
+
+      IMPORTANT: Do NOT use `git diff --no-index` or any form that
+      excludes new files. The three-dot `...` range with resolved refs
+      handles new files correctly — they appear as new file diffs with
+      full content.
+    inputs:
+      repo: "${{ inputs.repo }}"
+      source_ref: "${{ inputs.source_ref }}"
+      target_repo: "${{ has(inputs.target_repo) ? inputs.target_repo : '' }}"
+      target_ref: "${{ has(inputs.target_ref) ? inputs.target_ref : '' }}"
+    outputs:
+      diff: "${{ result.diff }}"
+      files_changed: "${{ result.files_changed }}"
+      insertions: "${{ result.insertions }}"
+      deletions: "${{ result.deletions }}"
+      summary: "${{ result.summary }}"
+      schema:
+        diff:
+          kind: artifact
+          content-type: text/x-diff
+          description: Git diff output between target and source refs
+          required: true
+        files_changed:
+          type: number
+          description: Number of files changed
+        insertions:
+          type: number
+          description: Lines added
+        deletions:
+          type: number
+          description: Lines removed
+        summary:
+          type: string
+          description: One-line summary of the diff (e.g. "42 files changed, 1200 insertions, 300 deletions")
+outputs:
+  diff: ${{ tasks.extract_diff.outputs.diff }}
+  files_changed: ${{ tasks.extract_diff.outputs.files_changed }}
+  insertions: ${{ tasks.extract_diff.outputs.insertions }}
+  deletions: ${{ tasks.extract_diff.outputs.deletions }}
+  summary: ${{ tasks.extract_diff.outputs.summary }}
