@@ -9,7 +9,7 @@ This repo is not the core Wagie template library. It is the home for specialized
 Keep templates here when they are:
 
 - domain-specific, such as Ethereum devnet and Kurtosis workflows
-- tool-specific, such as desloppify automation
+- tool-specific, such as code-review automation
 - operator-specific or opinionated enough that they should not shape Wagie core
 - tightly coupled to one family's concepts, inputs, or operational surfaces
 
@@ -34,7 +34,7 @@ Place templates by the domain that owns their meaning, not by incidental tooling
 Examples:
 
 - a devnet-to-Kurtosis repro workflow still belongs in `ethereum/`
-- a desloppify queue-draining loop belongs in `code/`
+- a code-review pipeline belongs in `code/`
 - iterative finding accumulation belongs in `research/`
 
 Do not add an extra `templates/` wrapper. Do not create deep category trees unless the repo grows enough to justify them.
