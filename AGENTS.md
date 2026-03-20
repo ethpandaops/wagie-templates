@@ -7,7 +7,7 @@ This repo is the companion library for specialized Wagie templates that do not b
 Current families:
 
 - `ethereum/`: devnet and Kurtosis Ethereum workflows
-- `code/`: desloppify and code-quality workflows
+- `code/`: code-review and code-quality workflows
 - `research/`: iterative research workflows
 
 Keep family directories shallow. Do not reintroduce a `templates/` wrapper here.
