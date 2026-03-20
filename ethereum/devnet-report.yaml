@@ -117,6 +117,12 @@ inputs:
       type: array
       items:
         type: string
+  report_model:
+    type: string
+    description: "Model for report rendering (e.g. claude-sonnet-4-6). Writing task; mid-tier models work well."
+  report_provider:
+    type: string
+    description: "Provider for report rendering (e.g. claudecode, codex)"
 tasks:
   render_report:
     worker: {match: "'writing' in skills"}

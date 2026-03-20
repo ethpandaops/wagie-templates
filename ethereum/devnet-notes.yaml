@@ -11,6 +11,12 @@ inputs:
   notes_url:
     type: string
     description: Optional explicit notes URL override
+  notes_model:
+    type: string
+    description: "Model for notes extraction (e.g. claude-sonnet-4-6). Tool-heavy; cheaper models work well."
+  notes_provider:
+    type: string
+    description: "Provider for notes extraction (e.g. claudecode, codex)"
 tasks:
   fetch_notes:
     run: fetch-devnet-notes
@@ -29,15 +35,17 @@ tasks:
     instructions: |-
       Resolve and summarize the canonical notes for the target devnet.
 
-      Use the notes surface as the primary context source for this task.
-      Use the expected ethpandaops notes URL pattern when an explicit notes URL is not provided.
+      Use the `panda` CLI and MCP tools to discover the notes URL when an explicit URL is not provided.
+      Use the expected ethpandaops notes URL pattern as a fallback.
 
       Required behavior:
       1. Resolve the notes URL for the target devnet.
       2. Fetch the notes content and extract only the details that materially help debugging or Kurtosis reproduction.
-      3. Prioritize client readiness, image hints, fork/network settings, special flags, and any example Kurtosis or ethereum-package config fragments.
+      3. Prioritize: client readiness, image hints, fork/network settings, special flags, fork activation epochs, any example Kurtosis or ethereum-package config fragments.
       4. Separate concrete facts from assumptions or stale-looking guidance.
       5. Return a concise summary plus a short list of the most reusable highlights.
+
+      Fork-boundary context: pay special attention to fork activation epochs, client version requirements, and any mentions of parameter changes that could affect consensus.
     inputs:
       network: ${{ inputs.network }}
       notes_url: "${{ has(inputs.notes_url) ? inputs.notes_url : '' }}"

@@ -82,6 +82,12 @@ inputs:
       type: array
       items:
         type: string
+  profile_model:
+    type: string
+    description: "Model for topology derivation (e.g. claude-sonnet-4-6). Reasoning task."
+  profile_provider:
+    type: string
+    description: "Provider for topology derivation (e.g. claudecode, codex)"
 tasks:
   derive:
     worker: {match: "'reasoning' in capabilities"}

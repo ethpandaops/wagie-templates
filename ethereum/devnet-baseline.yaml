@@ -74,6 +74,18 @@ inputs:
       type: array
       items:
         type: string
+  observe_model:
+    type: string
+    description: "Model for observation task (e.g. claude-sonnet-4-6). Tool-heavy; cheaper models work well."
+  observe_provider:
+    type: string
+    description: "Provider for observation task (e.g. claudecode, codex)"
+  classify_model:
+    type: string
+    description: "Model for classification task (e.g. claude-opus-4-6). Benefits from strong reasoning."
+  classify_provider:
+    type: string
+    description: "Provider for classification task (e.g. claudecode, codex)"
 tasks:
   observe:
     worker: {match: "'tool-use' in capabilities && 'reasoning' in capabilities"}
@@ -82,17 +94,27 @@ tasks:
     instructions: |-
       Build an initial devnet baseline using the available surfaces.
 
-      Use the `panda` binary as the primary tool surface for this task.
+      Use the `panda` CLI and MCP tools as the primary tool surface.
+
+      Panda commands for baseline data:
+      - Network overview: `panda dora overview <network>` — epoch, slot, participation rate, fork status.
+      - Epoch detail: `panda dora epoch <network> <epoch>` — start from head_epoch - 1 (head epoch is in-progress and misleading).
+      - Missing proposers: use `panda execute` with `dora.missing_proposers("<network>", epoch=N)`.
+      - Offline attesters: use `panda execute` with `dora.offline_attesters("<network>", epoch=N)`.
+      - Fork detection: `panda dora overview <network>` — if fork_count > 1, investigate immediately.
+      - Node health: `panda ethnode syncing <network> <instance>`, `panda ethnode finality <network> <instance>`.
+      - Datasource discovery: `panda datasources` to check what surfaces are available.
+      - Reference procedures: `panda search runbooks "debug devnet"` for tested baseline procedures.
 
       Priorities:
       - If Dora is available, collect in a single pass: network overview (current slot, epoch, validator count), fork/split status, epoch-level participation, missed proposers (~300 slots/hour lookback), and offline attesters. Note: Dora's `current_slot` is `epoch × 32` (the epoch's first slot), not the actual head slot — do not confuse these.
       - Head epoch caveat: the head epoch is still in progress and will show artificially low participation. Always start analysis from head epoch - 1.
       - Network split override: if Dora shows multiple forks, that overrides the active timeframe. You MUST identify the divergence slot/epoch where the split occurred and refocus the investigation around that point.
       - If Dora is unavailable but nodes are queryable (ethnode for remote, or direct localhost access for local Kurtosis), query each node to build a partial baseline:
-        * CL: `/eth/v1/node/syncing`, `/eth/v1/beacon/headers/head`, `/eth/v1/beacon/states/head/finality_checkpoints`
-        * EL: `eth_blockNumber`, `eth_syncing` (JSON-RPC)
+        * CL: `panda ethnode beacon-get <network> <instance> /eth/v1/node/syncing`, `panda ethnode finality <network> <instance>`
+        * EL: `panda ethnode exec-rpc <network> <instance> eth_blockNumber`, `panda ethnode exec-rpc <network> <instance> eth_syncing`
         * Compare head slots/roots and finality checkpoints across nodes to detect splits or disagreement.
-      - If Loki is the only available source, use label discovery and high-signal log queries to build a best-effort baseline.
+      - If Loki is the only available source, use `panda loki labels` and `panda loki query` with high-signal log queries to build a best-effort baseline.
       - When identifying instances, use the full resolved instance names, not shortened labels.
       - When possible, return instance-level status notes that help an operator decide what to inspect next.
 
@@ -107,6 +129,10 @@ tasks:
 
       Produce a concise baseline summary plus concrete evidence and affected instances when they can be identified.
       Preserve note-derived expectations when they matter for interpreting the network state.
+
+      Evidence rules:
+      - Every observation MUST reference a specific tool output from this session.
+      - If a data source is unavailable, state that explicitly rather than inferring.
     inputs:
       problem_statement: ${{ inputs.problem_statement }}
       focus: ${{ inputs.focus }}
@@ -159,29 +185,28 @@ tasks:
           description: Instance-level status notes using full resolved instance names
   classify_issue:
     needs: [observe]
-    worker: {match: "'reasoning' in capabilities"}
-    run: classify-devnet-issue
-    quality-gate: "${{ has(result.suspected_issue_type) && size(result.suspected_issue_type) > 0 && result.confidence >= 0 && result.confidence <= 100 && has(result.reasoning) && size(result.reasoning) > 0 }}"
+    uses: wagie/decide@1
     inputs:
-      problem_statement: ${{ inputs.problem_statement }}
-      focus: ${{ inputs.focus }}
-      baseline_summary: ${{ tasks.observe.outputs.baseline_summary }}
-      baseline_evidence: ${{ tasks.observe.outputs.baseline_evidence }}
+      question: "Based on the devnet baseline observations, what is the most likely issue type?"
+      context: |-
+        Problem statement: ${{ inputs.problem_statement }}
+        Focus: ${{ inputs.focus }}
+        Baseline summary: ${{ tasks.observe.outputs.baseline_summary }}
+        Baseline evidence: ${{ tasks.observe.outputs.baseline_evidence }}
+
+        Diagnostic signatures for each issue type:
+        - healthy: Single fork, finality progressing, participation > 95%, no missed slot clusters.
+        - network-split: Dora shows multiple forks; nodes disagree on head root; fork divergence at a specific slot. If a split is present, it takes priority — other symptoms are likely consequences.
+        - offline-nodes: Nodes unreachable or not producing attestations; peer count drops; specific instances absent from Dora.
+        - finality-delay: Participation < 66.7%; missed slots rising; finality checkpoints stalled for >2 epochs.
+        - client-bug: Single client type failing uniformly; all instances of that client show the same error pattern or behavior.
+        - execution-issue: CL engine API errors; EL returning invalid payloads; CL clean but EL erroring.
+        - unknown: Symptoms don't match known patterns or evidence is insufficient to classify.
+      options: ["healthy", "network-split", "offline-nodes", "finality-delay", "client-bug", "execution-issue", "unknown"]
     outputs:
-      suspected_issue_type: ${{ result.suspected_issue_type }}
-      confidence: ${{ result.confidence }}
-      reasoning: ${{ result.reasoning }}
-      schema:
-        suspected_issue_type:
-          type: string
-          description: Most likely top-level devnet issue category
-          enum: [healthy, network-split, offline-nodes, finality-delay, client-bug, execution-issue, unknown]
-        confidence:
-          type: number
-          description: Confidence score from 0 to 100
-        reasoning:
-          type: string
-          description: Why this issue type best fits the baseline
+      suspected_issue_type: decision
+      confidence: confidence
+      reasoning: reasoning
 outputs:
   suspected_issue_type: ${{ tasks.classify_issue.outputs.suspected_issue_type }}
   issue_type_confidence: ${{ tasks.classify_issue.outputs.confidence }}
@@ -190,3 +215,4 @@ outputs:
   affected_instances: ${{ tasks.observe.outputs.affected_instances }}
   baseline_evidence: ${{ tasks.observe.outputs.baseline_evidence }}
   instance_reports: ${{ tasks.observe.outputs.instance_reports }}
+  preliminary_severity: "${{ tasks.classify_issue.outputs.confidence >= 80 && (tasks.classify_issue.outputs.suspected_issue_type == 'network-split') ? 'critical' : tasks.classify_issue.outputs.confidence >= 80 && tasks.classify_issue.outputs.suspected_issue_type == 'finality-delay' ? 'high' : tasks.classify_issue.outputs.suspected_issue_type == 'healthy' ? 'low' : 'medium' }}"

@@ -19,6 +19,12 @@ inputs:
   notes_url:
     type: string
     description: Optional explicit notes URL override for the devnet
+  context_model:
+    type: string
+    description: "Model for context collection (e.g. claude-sonnet-4-6). Tool-heavy; cheaper models work well."
+  context_provider:
+    type: string
+    description: "Provider for context collection (e.g. claudecode, codex)"
 tasks:
   notes:
     uses: ethpandaops/devnet-notes@1
@@ -48,7 +54,7 @@ tasks:
     instructions: |-
       Collect normalized context for a devnet debugging session.
 
-      Use the `panda` binary as the primary tool surface for this task.
+      Use the `panda` CLI and MCP tools as the primary tool surface.
 
       This task supports two deployment modes:
       - **Remote** (default): devnets accessible via ethpandaops infrastructure (Dora, Loki with ethpandaops instance, ethnode).
@@ -58,14 +64,16 @@ tasks:
 
       ## Remote mode
 
-      Use the best available sources from the MCP environment:
-      - network resources such as networks://active, networks://all, and networks://{name}
-      - the resolved devnet notes when available
-      - Dora network listing when available
-      - Loki label discovery when available (the standard Loki instance is "ethpandaops"; if it does not exist, discover the correct instance name)
-      - ethnode availability signals and examples when available
+      Panda commands for remote discovery:
+      - Network listing: `panda dora networks` to find the network.
+      - Datasource check: `panda datasources` to verify available surfaces (Dora, Loki, ClickHouse, Prometheus).
+      - Network overview: `panda dora overview <network>` for epoch, slot, participation, fork status.
+      - Loki instance discovery: `panda loki list-datasources` to find the correct Loki instance name (standard is "ethpandaops"; discover dynamically if not present).
+      - Instance discovery: `panda loki label-values ethpandaops instance --query '{testnet="<network>"}'` to enumerate node instances.
+      - Label discovery: `panda loki labels ethpandaops --query '{testnet="<network>"}'` to find available labels.
+      - Node availability: `panda ethnode syncing <network> <instance>` to test reachability.
 
-      Remote instance discovery: use Loki label discovery with these standard labels: `testnet` (network name), `instance` (node identity), `ethereum_cl` (CL client type), `ethereum_el` (EL client type). Query the `instance` label filtered by the target network's `testnet` label. Instance names follow `<cl_type>-<el_type>-<instance_number>` (e.g. `lighthouse-geth-1`). These label names are the standard convention but may differ; if queries return errors or empty results, discover the actual label names dynamically.
+      Remote instance naming convention: `<cl_type>-<el_type>-<instance_number>` (e.g. `lighthouse-geth-1`). Standard Loki labels: `testnet` (network name), `instance` (node identity), `ethereum_cl` (CL client type), `ethereum_el` (EL client type). These label names are the standard convention but may differ; if queries return errors or empty results, discover the actual label names dynamically.
 
       Set `data_profile.mode = "remote"`, `data_profile.loki_schema = "ethpandaops"`, `data_profile.has_direct_node_access = false`.
 
@@ -86,9 +94,15 @@ tasks:
       1. Resolve the requested network. If it cannot be found in any datasource (remote or local), stop and report that the network does not exist.
       2. Determine whether Dora and Loki appear available.
       3. Discover node instances using the mode-appropriate method.
-      4. Normalize the active investigation timeframe. Preserve the user-provided timeframe when specific; otherwise default to a recent operational window. Downstream tasks may override this timeframe if they discover conditions that warrant it (e.g. a network split with a specific divergence point).
+      4. Normalize the active investigation timeframe. Preserve the user-provided timeframe when specific; otherwise default to a recent operational window.
       5. Incorporate any high-signal notes context that affects client readiness, expected flags, or likely topology.
       6. Summarize what evidence surfaces are available and what the next debugging step should rely on.
+
+      Fork-boundary awareness:
+      - Check if the network is near or past a recent fork activation (electra, fulu, osaka, etc.).
+      - If a fork recently activated, note the fork epoch and whether all client types have confirmed post-fork participation.
+      - Fork boundary incidents often manifest as client-specific forks — one client type producing blocks on a separate chain.
+      - Record the fork schedule in the context summary when it may be relevant to the incident.
     inputs:
       network: ${{ inputs.network }}
       timeframe: ${{ inputs.timeframe }}

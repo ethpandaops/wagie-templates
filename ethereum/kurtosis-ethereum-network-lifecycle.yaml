@@ -88,6 +88,18 @@ inputs:
     type: boolean
     default: true
     description: Whether to always remove the enclave in finally cleanup
+  config_model:
+    type: string
+    description: "Model for config design (e.g. claude-opus-4-6). Benefits from strong reasoning."
+  config_provider:
+    type: string
+    description: "Provider for config design (e.g. claudecode, codex)"
+  operations_model:
+    type: string
+    description: "Model for launch and observation tasks (e.g. claude-sonnet-4-6). Tool-heavy; cheaper models work well."
+  operations_provider:
+    type: string
+    description: "Provider for operations tasks (e.g. claudecode, codex)"
 tasks:
   design_config:
     uses: ethpandaops/kurtosis-ethereum-config@1
@@ -128,8 +140,8 @@ tasks:
     instructions: |-
       Launch the requested Ethereum network with Kurtosis.
 
-      Use the `kurtosis` CLI as the primary tool surface for this task.
-      Use the `panda` binary when you need to surface network or devnet information during launch preparation.
+      Use the `kurtosis` CLI as the primary tool surface for launch operations.
+      Use the `panda` CLI and MCP tools when you need to surface network or devnet information.
 
       Requirements:
       - Use the provided `config` artifact as the args file for the kurtosis run command.
@@ -187,8 +199,13 @@ tasks:
     instructions: |-
       Observe the launched Ethereum network over the requested observation window before writing the final operator summary.
 
-      Use the `kurtosis` CLI as the primary tool surface for this task.
-      Use the `panda` binary when you need to surface network or devnet information during observation.
+      Use the `kurtosis` CLI as the primary tool surface for enclave operations.
+      Use the `panda` CLI and MCP tools for network data (Dora queries, log analysis, node health checks).
+
+      Panda commands for observation:
+      - If Dora is available in the enclave: query via its localhost port for participation, finality, and fork status.
+      - Log analysis: use `panda loki query` if Loki is available, or `kurtosis service logs` as fallback.
+      - Node health: query CL/EL nodes directly via their localhost ports.
 
       Focus on:
       - whether the network progresses over the window
@@ -282,6 +299,8 @@ tasks:
       - proposed blocks, missed proposals, and missed attestations when available
       - what services and endpoints matter most next
       - what the operator should do next
+
+      Write the rendered operator summary as the `summary` output artifact.
     inputs:
       goal: ${{ inputs.goal }}
       enclave_name: ${{ inputs.enclave_name }}
@@ -305,8 +324,10 @@ tasks:
       summary: ${{ result.summary }}
       schema:
         summary:
-          type: string
-          description: Concise operator summary
+          kind: artifact
+          content-type: text/markdown
+          description: Operator summary of the designed, launched, and observed Kurtosis Ethereum network
+          required: true
 finally:
   cleanup_enclave:
     if: ${{ inputs.auto_cleanup == true && inputs.launch == true }}

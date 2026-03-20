@@ -58,6 +58,12 @@ inputs:
           difficulty:
             type: string
         required: [question]
+  model:
+    type: string
+    description: "Preferred model (e.g. claude-sonnet-4-6). Investigation is high-volume; cheaper models work well."
+  provider:
+    type: string
+    description: "Preferred provider (e.g. claudecode, codex)"
   plan_questions:
     type: array
     default: []
@@ -78,7 +84,11 @@ inputs:
         required: [question]
 tasks:
   investigate:
-    worker: {match: "'research' in skills"}
+    worker:
+      match: >-
+        'research' in skills
+        && (!has(inputs.provider) || inputs.provider == '' || inputs.provider in providers)
+        && (!has(inputs.model) || inputs.model == '' || inputs.model in models)
     run: research
     quality-gate: "${{ has(result.findings) && size(result.findings) > 0 }}"
     instructions: |
