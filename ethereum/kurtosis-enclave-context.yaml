@@ -29,12 +29,6 @@ inputs:
     type: boolean
     default: false
     description: Whether to inspect targeted service logs during context collection
-  inspect_model:
-    type: string
-    description: "Model for enclave inspection (e.g. claude-sonnet-4-6). Tool-heavy; cheaper models work well."
-  inspect_provider:
-    type: string
-    description: "Provider for enclave inspection (e.g. claudecode, codex)"
 tasks:
   inspect_enclave:
     worker: {match: "'reasoning' in capabilities && 'tool-use' in capabilities"}

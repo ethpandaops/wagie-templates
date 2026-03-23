@@ -1,0 +1,207 @@
+name: ethpandaops/kurtosis-ethereum-bug-round
+version: "1.0"
+description: >-
+  Use when a Kurtosis Ethereum bug hunt needs one focused probe round against an enclave. Returns only new or materially upgraded findings plus the next gaps worth investigating.
+tags: ["kurtosis", "ethereum", "ethpandaops", "bug-hunt", "debugging", "type:building-block", "cap:investigation"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 10s
+      factor: 2
+      max-delay: 30s
+      jitter: true
+    timeout: 5m
+inputs:
+  enclave_name:
+    type: string
+    required: true
+    description: Kurtosis enclave to probe
+  goal:
+    type: string
+    required: true
+    description: Hunt objective or desired network behavior
+  hunt_focus:
+    type: string
+    default: general
+    description: Optional focus such as finality, interop, forks, or service-health
+  config_summary:
+    type: string
+    description: Config design summary for the network
+  launch_summary:
+    type: string
+    description: Launch summary for the current enclave
+  status_summary:
+    type: string
+    description: Current enclave status summary
+  service_names:
+    type: array
+    default: []
+    description: Known services in the enclave
+    schema:
+      type: array
+      items:
+        type: string
+  public_endpoints:
+    type: array
+    default: []
+    description: Known public endpoints in the enclave
+    schema:
+      type: array
+      items:
+        type: string
+  previous_findings:
+    type: array
+    default: []
+    description: Findings already established in prior rounds
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          title:
+            type: string
+          severity:
+            type: string
+          summary:
+            type: string
+          affected_scope:
+            type: string
+          category:
+            type: string
+          confidence:
+            type: number
+          status:
+            type: string
+          evidence:
+            type: array
+            items:
+              type: string
+          warrants_devnet_debug:
+            type: boolean
+          next_check:
+            type: string
+        required: [title, severity, summary, affected_scope]
+  gaps:
+    type: array
+    default: []
+    description: Remaining targeted questions from prior rounds
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          question:
+            type: string
+          priority:
+            type: string
+          reason:
+            type: string
+        required: [question, priority, reason]
+tasks:
+  probe:
+    worker: {match: "'reasoning' in capabilities && 'tool-use' in capabilities"}
+    run: hunt-kurtosis-ethereum-bug-round
+    quality-gate: "${{ has(result.summary) && size(result.summary) > 0 && has(result.findings) && has(result.suggested_gaps) }}"
+    instructions: |-
+      Run one focused Kurtosis Ethereum bug-hunt round.
+
+      Use the `kurtosis` CLI as the primary tool surface for enclave operations.
+      Use the `panda` CLI and MCP tools for network analysis when available.
+
+      Strategy:
+      - If `previous_findings` is empty, start broad: establish a baseline
+        for service health, consensus progress, finality, fork agreement,
+        sync state, and obvious log anomalies.
+      - If `gaps` are present, prioritize the highest-value unresolved
+        questions first and use targeted checks to confirm, refute, or
+        sharpen prior hypotheses.
+      - Do not repeat already-established findings unless you are materially
+        upgrading them with stronger evidence or refuting them.
+
+      Evidence rules:
+      - Every finding must cite concrete evidence from this round.
+      - Reference specific commands, endpoints, log excerpts, or observed
+        service states rather than generic statements.
+      - Prefer a small number of substantive findings over a long weak list.
+
+      For each finding:
+      - Set severity as critical, high, medium, or low.
+      - Set status as suspected, confirmed, or refuted.
+      - State the affected scope precisely.
+      - Include a confidence score from 0-100.
+      - Set `warrants_devnet_debug` when the finding deserves deeper
+        follow-up via a devnet-debug workflow.
+
+      Return only new or materially upgraded findings from this round.
+      Also return `suggested_gaps`: the next checks that would most improve
+      confidence or close unresolved ambiguity.
+    inputs:
+      enclave_name: ${{ inputs.enclave_name }}
+      goal: ${{ inputs.goal }}
+      hunt_focus: ${{ inputs.hunt_focus }}
+      config_summary: "${{ has(inputs.config_summary) ? inputs.config_summary : '' }}"
+      launch_summary: "${{ has(inputs.launch_summary) ? inputs.launch_summary : '' }}"
+      status_summary: "${{ has(inputs.status_summary) ? inputs.status_summary : '' }}"
+      service_names: ${{ inputs.service_names }}
+      public_endpoints: ${{ inputs.public_endpoints }}
+      previous_findings: ${{ inputs.previous_findings }}
+      gaps: ${{ inputs.gaps }}
+    outputs:
+      findings: "${{ has(result.findings) ? result.findings : [] }}"
+      summary: "${{ result.summary }}"
+      suggested_gaps: "${{ has(result.suggested_gaps) ? result.suggested_gaps : [] }}"
+      schema:
+        findings:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+              severity:
+                type: string
+                enum: [critical, high, medium, low]
+              summary:
+                type: string
+              affected_scope:
+                type: string
+              category:
+                type: string
+              confidence:
+                type: number
+              status:
+                type: string
+                enum: [suspected, confirmed, refuted]
+              evidence:
+                type: array
+                items:
+                  type: string
+              warrants_devnet_debug:
+                type: boolean
+              next_check:
+                type: string
+            required: [title, severity, summary, affected_scope, status, evidence]
+          description: New or materially upgraded candidate bugs from this round
+        summary:
+          type: string
+          description: Concise summary of this probe round
+        suggested_gaps:
+          type: array
+          items:
+            type: object
+            properties:
+              question:
+                type: string
+              priority:
+                type: string
+                enum: [high, medium, low]
+              reason:
+                type: string
+            required: [question, priority, reason]
+          description: Targeted next checks suggested by this round
+outputs:
+  findings: ${{ tasks.probe.outputs.findings }}
+  summary: ${{ tasks.probe.outputs.summary }}
+  suggested_gaps: ${{ tasks.probe.outputs.suggested_gaps }}

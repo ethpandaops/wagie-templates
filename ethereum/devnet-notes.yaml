@@ -11,12 +11,6 @@ inputs:
   notes_url:
     type: string
     description: Optional explicit notes URL override
-  notes_model:
-    type: string
-    description: "Model for notes extraction (e.g. claude-sonnet-4-6). Tool-heavy; cheaper models work well."
-  notes_provider:
-    type: string
-    description: "Provider for notes extraction (e.g. claudecode, codex)"
 tasks:
   fetch_notes:
     run: fetch-devnet-notes

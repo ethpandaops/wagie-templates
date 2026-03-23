@@ -71,12 +71,6 @@ inputs:
           count:
             type: number
         required: [el_type, cl_type]
-  config_model:
-    type: string
-    description: "Model for config design (e.g. claude-opus-4-6). Benefits from strong reasoning."
-  config_provider:
-    type: string
-    description: "Provider for config design (e.g. claudecode, codex)"
 tasks:
   replicate_devnet_config:
     if: ${{ inputs.config_mode == 'devnet-profile' }}
@@ -110,7 +104,7 @@ tasks:
         max-delay: 1m
         jitter: true
       timeout: 5m
-    quality-gate: "${{ has(result.config_summary) && size(result.config_summary) > 0 && has(result.effective_client_pairs) && size(result.effective_client_pairs) >= 2 }}"
+    quality-gate: "${{ has(result.config_summary) && size(result.config_summary) > 0 && has(result.effective_client_pairs) && size(result.effective_client_pairs) > 0 }}"
     instructions: |-
       Design a sensible minimal `network_params.yaml` for the ethpandaops ethereum-package.
 
@@ -122,11 +116,11 @@ tasks:
       - If an example hint is provided, use it as a starting reference rather than copying it blindly.
       - If explicit client pairs are provided, treat them as the primary participant topology input.
       - Preserve explicit per-client extra params when they are provided and they matter to the intended reproduction, validation, or launch behavior.
-      - A valid minimal devnet config must still model at least two client pairs; never return fewer than two effective participant pairs.
-      - Default to the smallest participant topology that still preserves the relevant behavior while meeting the two-pair minimum.
-      - Collapse repeated identical client pairs, but only after preserving at least two distinct effective participant pairs.
+      - A valid minimal devnet config must still model at least two total participants across the effective client-pair topology.
+      - Default to the smallest participant topology that still preserves the relevant behavior while meeting the two-participant minimum.
+      - Collapse repeated identical client pairs when appropriate and use `count` to represent multiplicity.
       - Preserve distinct client/image combinations that matter, but use `count: 1` for each unless the goal or constraints explicitly require multiplicity.
-      - If the caller provides fewer than two viable pairs, infer or add additional compatible fallback pairs until there are at least two effective participant pairs, and record that choice.
+      - If the caller provides fewer than two viable participants, infer or add compatible fallback pairs, or increase multiplicity with `count`, until the topology represents at least two total participants, and record that choice.
       - Do not perform deep package or devnet discovery inside this step.
       - Write the generated configuration as the `config` output artifact.
     inputs:
@@ -138,6 +132,7 @@ tasks:
       image_hint: "${{ has(inputs.image_hint) ? inputs.image_hint : '' }}"
       client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
     outputs:
+      config: ${{ result.config }}
       config_summary: ${{ result.config_summary }}
       inferred_features: "${{ has(result.inferred_features) ? result.inferred_features : [] }}"
       effective_client_pairs: "${{ has(result.effective_client_pairs) ? result.effective_client_pairs : [] }}"
@@ -188,7 +183,7 @@ tasks:
               count:
                 type: number
             required: [el_type, cl_type]
-          description: Effective participant pairs used in the generated config; minimal mode must return at least two pairs
+          description: Effective participant pair definitions used in the generated config; minimal mode must represent at least two total participants, even when identical pairs are collapsed via `count`
         fallback_pair_added:
           type: boolean
           description: Whether one or more fallback client pairs were added to reach a viable minimal topology
