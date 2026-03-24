@@ -88,18 +88,6 @@ inputs:
     type: boolean
     default: true
     description: Whether to always remove the enclave in finally cleanup
-  config_model:
-    type: string
-    description: "Model for config design (e.g. claude-opus-4-6). Benefits from strong reasoning."
-  config_provider:
-    type: string
-    description: "Provider for config design (e.g. claudecode, codex)"
-  operations_model:
-    type: string
-    description: "Model for launch and observation tasks (e.g. claude-sonnet-4-6). Tool-heavy; cheaper models work well."
-  operations_provider:
-    type: string
-    description: "Provider for operations tasks (e.g. claudecode, codex)"
 tasks:
   design_config:
     uses: ethpandaops/kurtosis-ethereum-config@1

@@ -19,12 +19,6 @@ inputs:
   notes_url:
     type: string
     description: Optional explicit notes URL override for the devnet
-  context_model:
-    type: string
-    description: "Model for context collection (e.g. claude-sonnet-4-6). Tool-heavy; cheaper models work well."
-  context_provider:
-    type: string
-    description: "Provider for context collection (e.g. claudecode, codex)"
 tasks:
   notes:
     uses: ethpandaops/devnet-notes@1
@@ -66,16 +60,19 @@ tasks:
 
       Panda commands for remote discovery:
       - Network listing: `panda dora networks` to find the network.
-      - Datasource check: `panda datasources` to verify available surfaces (Dora, Loki, ClickHouse, Prometheus).
+      - Datasource check: `panda datasources` to verify available surfaces (Dora, Loki, ClickHouse, Prometheus). Set `has_clickhouse` and `has_prometheus` based on whether the network appears in those datasources.
       - Network overview: `panda dora overview <network>` for epoch, slot, participation, fork status.
-      - Loki instance discovery: `panda loki list-datasources` to find the correct Loki instance name (standard is "ethpandaops"; discover dynamically if not present).
-      - Instance discovery: `panda loki label-values ethpandaops instance --query '{testnet="<network>"}'` to enumerate node instances.
-      - Label discovery: `panda loki labels ethpandaops --query '{testnet="<network>"}'` to find available labels.
+      - Loki instance discovery: `panda loki list-datasources` to find the correct Loki datasource name. Do not assume "ethpandaops".
+      - Instance discovery: `panda loki label-values <discovered_loki_datasource> instance --query '{network="<network>"}'` to enumerate node instances.
+      - Label discovery: `panda loki labels <discovered_loki_datasource> --query '{network="<network>"}'` to find available labels.
       - Node availability: `panda ethnode syncing <network> <instance>` to test reachability.
 
-      Remote instance naming convention: `<cl_type>-<el_type>-<instance_number>` (e.g. `lighthouse-geth-1`). Standard Loki labels: `testnet` (network name), `instance` (node identity), `ethereum_cl` (CL client type), `ethereum_el` (EL client type). These label names are the standard convention but may differ; if queries return errors or empty results, discover the actual label names dynamically.
+      Remote instance naming convention: `<cl_type>-<el_type>-<instance_number>` (e.g. `lighthouse-geth-1`). Standard Loki labels: `network` (network name), `instance` (node identity), `ethereum_cl` (CL client type), `ethereum_el` (EL client type), `container_name` (beacon, validator, execution). The `testnet` label also exists as an alias for `network` but prefer `network`. These label names are the standard convention but may differ; if queries return errors or empty results, discover the actual label names dynamically.
 
       Set `data_profile.mode = "remote"`, `data_profile.loki_schema = "ethpandaops"`, `data_profile.has_direct_node_access = false`.
+      Set `data_profile.loki_datasource` to the discovered Loki datasource name when Loki is available, otherwise `""`.
+      Set `data_profile.has_clickhouse = true` if `xatu-experimental` datasource exists and the network has data there.
+      Set `data_profile.has_prometheus = true` if the `devnets` Prometheus datasource exists.
 
       ## Local Kurtosis mode
 
@@ -87,7 +84,8 @@ tasks:
       5. Any service not in RUNNING state is itself a finding — include it in the summary.
       6. Local devnets never have ClickHouse or xatu — do not attempt to use them.
 
-      Set `data_profile.mode = "local"`, `data_profile.loki_schema = "kurtosis"`, `data_profile.has_direct_node_access = true`, `data_profile.has_ethnode = false`.
+      Set `data_profile.mode = "local"`, `data_profile.loki_schema = "kurtosis"`, `data_profile.has_direct_node_access = true`, `data_profile.has_ethnode = false`, `data_profile.has_clickhouse = false`, `data_profile.has_prometheus = false`.
+      Set `data_profile.loki_datasource` to the discovered local Loki datasource name when Loki is queryable through `panda`, otherwise `""`.
 
       ## Common behavior (both modes)
 
@@ -110,6 +108,7 @@ tasks:
       notes_url: "${{ has(tasks.notes.outputs.notes_url) ? tasks.notes.outputs.notes_url : '' }}"
       notes_summary: "${{ has(tasks.notes.outputs.notes_summary) ? tasks.notes.outputs.notes_summary : '' }}"
       notes_highlights: "${{ has(tasks.notes.outputs.highlights) ? tasks.notes.outputs.highlights : [] }}"
+      notes_assumptions: "${{ has(tasks.notes.outputs.assumptions) ? tasks.notes.outputs.assumptions : [] }}"
     outputs:
       network_name: ${{ result.network_name }}
       network_group: "${{ has(result.network_group) ? result.network_group : '' }}"
@@ -149,8 +148,17 @@ tasks:
               type: boolean
             has_loki:
               type: boolean
+            loki_datasource:
+              type: string
+              description: Resolved Loki datasource name to use for queries; empty when Loki is unavailable or not configured via panda
             has_ethnode:
               type: boolean
+            has_clickhouse:
+              type: boolean
+              description: Whether ClickHouse xatu-experimental datasource has data for this network
+            has_prometheus:
+              type: boolean
+              description: Whether Prometheus devnets datasource is available
             has_direct_node_access:
               type: boolean
               description: Whether CL/EL nodes are directly queryable via localhost ports (true for local Kurtosis)
@@ -158,7 +166,7 @@ tasks:
               type: string
               enum: [ethpandaops, kurtosis]
               description: Which Loki label/field conventions to use for log queries
-          required: [mode, has_dora, has_loki, has_ethnode, has_direct_node_access, loki_schema]
+          required: [mode, has_dora, has_loki, loki_datasource, has_ethnode, has_direct_node_access, loki_schema]
           description: Available debugging surfaces and deployment mode
         summary:
           type: string

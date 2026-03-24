@@ -1,8 +1,8 @@
 name: ethpandaops/devnet-report
 version: "1.0"
 description: >-
-  Use when a workflow needs a shareable Ethereum devnet incident report; renders structured debug outputs into concise markdown with instance-level findings and concrete evidence for operators and stakeholders.
-tags: ["devnet", "ethereum", "ethpandaops", "reporting"]
+  Use when a workflow needs a shareable Ethereum devnet report; renders structured outputs (from baseline, debug, or finality assessment) into concise markdown for operators and stakeholders. Works for both incident reports and routine status reports.
+tags: ["devnet", "ethereum", "ethpandaops", "reporting", "status", "incident"]
 defaults:
   retry:
     max: 1
@@ -31,12 +31,12 @@ inputs:
     description: Normalized context summary
   issue_type:
     type: string
-    required: true
-    description: Top-level issue classification
+    default: healthy
+    description: Top-level issue classification (e.g. healthy, network-split, finality-delay)
   root_cause:
     type: string
-    required: true
-    description: Most likely root cause
+    default: ""
+    description: Most likely root cause (empty for healthy networks)
   severity:
     type: string
     description: Overall severity estimate
@@ -45,7 +45,7 @@ inputs:
     description: Baseline network state summary
   findings_summary:
     type: string
-    required: true
+    default: ""
     description: Investigation findings summary
   affected_instances:
     type: array
@@ -117,26 +117,25 @@ inputs:
       type: array
       items:
         type: string
-  report_model:
-    type: string
-    description: "Model for report rendering (e.g. claude-sonnet-4-6). Writing task; mid-tier models work well."
-  report_provider:
-    type: string
-    description: "Provider for report rendering (e.g. claudecode, codex)"
 tasks:
   render_report:
     worker: {match: "'writing' in skills"}
     run: render-devnet-report
+    quality-gate: "${{ has(result.report) && size(result.report) > 100 }}"
     instructions: |-
-      Render a concise markdown incident report for sharing.
+      Render a concise markdown devnet report for sharing.
 
-      Required sections:
-      1. Title
-      2. Situation
-      3. Current assessment
-      4. Affected instances
-      5. Concrete log / RPC evidence
-      6. Recommended actions
+      Adapt the report structure to the situation:
+      - For incidents (issue_type is not "healthy"): emphasize root cause, affected scope, and remediation.
+      - For status reports (issue_type is "healthy" or empty): emphasize current state, health metrics, and any observations.
+
+      Sections (include all that have data, skip empty ones):
+      1. Title — include network name and date
+      2. Situation — what was observed or requested
+      3. Current assessment — network state, issue classification if applicable
+      4. Affected instances — only if there are affected instances
+      5. Concrete log / RPC evidence — only if log examples are provided
+      6. Recommended actions — next steps or "no action required"
 
       Keep the report compact and operational. Use bullets where they improve scanability.
       Prefer full resolved instance names over shortened labels.
@@ -149,22 +148,23 @@ tasks:
       investigation_timeframe: ${{ inputs.investigation_timeframe }}
       problem_statement: "${{ has(inputs.problem_statement) ? inputs.problem_statement : '' }}"
       context_summary: ${{ inputs.context_summary }}
-      issue_type: ${{ inputs.issue_type }}
-      root_cause: ${{ inputs.root_cause }}
+      issue_type: "${{ has(inputs.issue_type) ? inputs.issue_type : 'healthy' }}"
+      root_cause: "${{ has(inputs.root_cause) ? inputs.root_cause : '' }}"
       severity: "${{ has(inputs.severity) ? inputs.severity : 'medium' }}"
       baseline_summary: "${{ has(inputs.baseline_summary) ? inputs.baseline_summary : '' }}"
-      findings_summary: ${{ inputs.findings_summary }}
+      findings_summary: "${{ has(inputs.findings_summary) ? inputs.findings_summary : '' }}"
       affected_instances: ${{ inputs.affected_instances }}
       evidence: ${{ inputs.evidence }}
       instance_reports: ${{ inputs.instance_reports }}
       log_examples: ${{ inputs.log_examples }}
       recommended_actions: ${{ inputs.recommended_actions }}
     outputs:
+      report: ${{ result.report }}
       schema:
         report:
           kind: artifact
           content-type: text/markdown
-          description: Shareable markdown incident report
+          description: Shareable markdown devnet report
           required: true
 outputs:
   report: ${{ tasks.render_report.outputs.report }}

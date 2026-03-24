@@ -59,12 +59,6 @@ inputs:
     type: string
     default: github.com/ethpandaops/ethereum-package
     description: Kurtosis package reference to target
-  config_model:
-    type: string
-    description: "Model for config derivation (e.g. claude-opus-4-6). Benefits from strong reasoning."
-  config_provider:
-    type: string
-    description: "Provider for config derivation (e.g. claudecode, codex)"
 tasks:
   devnet_notes:
     uses: ethpandaops/devnet-notes@1
@@ -152,6 +146,7 @@ tasks:
     outputs:
       resolved_network_name: ${{ inputs.devnet_name }}
       resolved_network_group: ""
+      config: ${{ result.config }}
       config_summary: ${{ result.config_summary }}
       assumptions: "${{ has(result.assumptions) ? result.assumptions : [] }}"
       effective_client_pairs: "${{ has(result.effective_client_pairs) ? result.effective_client_pairs : [] }}"

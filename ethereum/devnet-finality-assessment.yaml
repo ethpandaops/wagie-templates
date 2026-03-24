@@ -48,14 +48,23 @@ inputs:
           type: boolean
         has_loki:
           type: boolean
+        loki_datasource:
+          type: string
         has_ethnode:
+          type: boolean
+        has_clickhouse:
+          type: boolean
+        has_prometheus:
           type: boolean
         has_direct_node_access:
           type: boolean
         loki_schema:
           type: string
           enum: [ethpandaops, kurtosis]
-      required: [mode, has_dora, has_loki, has_ethnode, has_direct_node_access, loki_schema]
+      required: [mode, has_dora, has_loki, loki_datasource, has_ethnode, has_direct_node_access, loki_schema]
+  context_summary:
+    type: string
+    description: Optional normalized context summary (fork schedule, deployment mode, available surfaces)
   notes_summary:
     type: string
     description: Optional high-signal notes summary for the devnet
@@ -67,79 +76,155 @@ inputs:
       type: array
       items:
         type: string
-  observe_model:
-    type: string
-    description: "Model for finality observation (e.g. claude-sonnet-4-6). Tool-heavy; cheaper models work well."
-  observe_provider:
-    type: string
-    description: "Provider for finality observation (e.g. claudecode, codex)"
-  classify_model:
-    type: string
-    description: "Model for finality classification (e.g. claude-opus-4-6). Benefits from strong reasoning."
-  classify_provider:
-    type: string
-    description: "Provider for finality classification (e.g. claudecode, codex)"
 tasks:
   observe:
     worker: {match: "'tool-use' in capabilities && 'reasoning' in capabilities"}
     run: assess-devnet-finality
     quality-gate: "${{ has(result.finality_summary) && size(result.finality_summary) > 0 }}"
     instructions: |-
-      Assess the network's finality state using the best available sources.
+      Assess the network's finality state. This is a focused finality drill-down — broad
+      baseline work (fork detection, missing proposers, offline attesters, general node health)
+      is handled by the baseline template. Focus on where finality is, why it stopped, and
+      whether it's recovering.
 
-      Use the `panda` CLI and MCP tools as the primary tool surface.
+      Use the `panda` CLI. For Python API calls, use heredoc stdin to avoid quote issues:
+      ```
+      panda execute <<'PYEOF'
+      <python code here — no escaping needed>
+      PYEOF
+      ```
 
-      Panda commands for finality assessment:
-      - Network overview: `panda dora overview <network>` for finalized epoch, head epoch, participation rate.
-      - Epoch detail: `panda dora epoch <network> <epoch>` — start from head_epoch - 1 (head epoch is in-progress).
-      - Missing proposers: use `panda execute` with `dora.missing_proposers("<network>", epoch=N)`.
-      - Offline attesters: use `panda execute` with `dora.offline_attesters("<network>", epoch=N)`.
-      - Finality checkpoints: `panda ethnode finality <network> <instance>` for direct checkpoint queries.
-      - Cross-node comparison: use `panda execute` with Python to compare finality checkpoints across multiple instances.
-      - Reference procedures: `panda search runbooks "finality"` for tested finality investigation procedures.
+      ## Finality checkpoint collection
 
-      Finality thresholds:
+      The Dora overview only returns a `finalized` boolean, not the epoch number. Use ethnode
+      for the authoritative finalized epoch:
+      - `panda ethnode finality <network> <instance>` — returns finalized epoch/root,
+        current_justified epoch/root, previous_justified epoch/root.
+
+      Query 2-3 nodes from different client types. If finalized epochs or roots disagree,
+      the network has split and nodes are finalizing different chains.
+
+      Compute: `epochs_behind = current_epoch - finalized_epoch`
+
+      ## Participation trend (epoch walk)
+
+      Walk recent epochs to find the drop-off point and assess direction:
+      ```
+      panda execute <<'PYEOF'
+      from ethpandaops import dora
+      network = "<network>"
+      overview = dora.get_network_overview(network)
+      head_epoch = overview["current_epoch"]
+      for e in range(head_epoch - 1, max(head_epoch - 20, 0), -1):
+          ep = dora.get_epoch(network, e)
+          d = ep["data"]
+          print(f"  epoch={d['epoch']} finalized={d['finalized']} participation={d['globalparticipationrate']}% proposed={d['blockscount']}/{d['blockscount']+d['missedblocks']}")
+      PYEOF
+      ```
+
+      From this, identify:
+      - `finality_broke_epoch`: first epoch after the last finalized one.
+      - `participation_trend`: recovering (increasing), stable, or declining.
+
+      The head epoch is in progress — start analysis from head_epoch - 1.
+
+      ## Finality thresholds
+
       - Finality requires >66.7% (2/3) of stake attesting.
-      - Normal finality lag: 2 epochs.
-      - Concern: >4 epochs without finality.
-      - Critical: >8 epochs without finality.
+      - Normal lag: 2 epochs. Concern: >4. Critical: >8.
 
-      Priorities:
-      - Use Dora first when available for finalized epoch, head epoch, participation rates, missed slots, and fork visibility.
-      - Head epoch caveat: the head epoch is still in progress and will show artificially low participation. Always start analysis from head epoch - 1.
-      - If Dora is unavailable and nodes are queryable, compare finality checkpoints and sync status across instances directly. Use `panda ethnode finality <network> <instance>` and `panda ethnode syncing <network> <instance>`. Look for checkpoint disagreement.
-      - If only Loki is available, infer likely finality blockers from CL error patterns and instance health.
-      - Preserve note-derived expectations when they matter for interpreting the finality state.
+      <example>
+      Good finality summary:
+      "Finality stalled at epoch 3742. Last finalized epoch: 3741 (82% participation).
+      Epoch 3742 dropped to 31% and has not recovered — current epoch 3912 is 170 epochs
+      behind. Participation stable at 30% across last 20 epochs (no recovery trend).
+      lighthouse-geth-1 and lodestar-geth-1 disagree on finalized checkpoint (3741 vs 3740),
+      suggesting a split occurred near the finality boundary."
+      </example>
 
-      Evidence rules:
-      - Every observation MUST reference a specific tool output from this session.
-      - If a data source is unavailable, state that explicitly rather than inferring.
+      ## Report artifact
 
-      Produce a concise finality summary, epochs-behind estimate, and supporting evidence.
+      Build a markdown report as you go. Append raw API responses after each collection
+      step. Write the final report as the `report` output artifact.
+
+      ## Evidence and uncertainty
+
+      Ground every observation in a specific tool output. If a data source is unavailable or
+      a query fails, say so rather than inferring. If evidence is ambiguous, express that —
+      a qualified assessment is more useful than a confident wrong one.
     inputs:
       network_name: ${{ inputs.network_name }}
       investigation_timeframe: ${{ inputs.investigation_timeframe }}
       threshold_epochs: ${{ inputs.threshold_epochs }}
       instances: ${{ inputs.instances }}
       data_profile: ${{ inputs.data_profile }}
+      context_summary: "${{ has(inputs.context_summary) ? inputs.context_summary : '' }}"
       notes_summary: "${{ has(inputs.notes_summary) ? inputs.notes_summary : '' }}"
       notes_highlights: "${{ has(inputs.notes_highlights) ? inputs.notes_highlights : [] }}"
     outputs:
       finality_summary: ${{ result.finality_summary }}
       epochs_behind: "${{ has(result.epochs_behind) ? result.epochs_behind : 0 }}"
+      finality_broke_epoch: "${{ has(result.finality_broke_epoch) ? result.finality_broke_epoch : -1 }}"
+      participation_trend: "${{ has(result.participation_trend) ? result.participation_trend : 'unknown' }}"
       evidence: "${{ has(result.evidence) ? result.evidence : [] }}"
+      report: "${{ has(result.report) ? result.report : '' }}"
+      finality_checkpoints: "${{ has(result.finality_checkpoints) ? result.finality_checkpoints : [] }}"
+      participation_by_epoch: "${{ has(result.participation_by_epoch) ? result.participation_by_epoch : [] }}"
       schema:
         finality_summary:
           type: string
-          description: Concise finality baseline summary
+          description: Concise finality assessment summary
         epochs_behind:
           type: number
-          description: Estimated epochs behind finality
+          description: Epochs behind finality (current_epoch - finalized_epoch)
+        finality_broke_epoch:
+          type: number
+          description: The epoch where finality stopped progressing (-1 if unknown)
+        participation_trend:
+          type: string
+          enum: [recovering, stable, declining, unknown]
+          description: Direction of participation rate across recent epochs
         evidence:
           type: array
           items:
             type: string
           description: Observations supporting the finality assessment
+        report:
+          kind: artifact
+          content-type: text/markdown
+          description: Finality report with raw API responses
+        finality_checkpoints:
+          type: array
+          items:
+            type: object
+            properties:
+              instance_name:
+                type: string
+              finalized_epoch:
+                type: number
+              finalized_root:
+                type: string
+              justified_epoch:
+                type: number
+              justified_root:
+                type: string
+          description: Per-node finality checkpoint data showing agreement or divergence
+        participation_by_epoch:
+          type: array
+          items:
+            type: object
+            properties:
+              epoch:
+                type: number
+              finalized:
+                type: boolean
+              participation_rate:
+                type: number
+              proposed_blocks:
+                type: number
+              missed_blocks:
+                type: number
+          description: Epoch-by-epoch participation and finality status
   classify_status:
     needs: [observe]
     uses: wagie/decide@1
@@ -148,13 +233,17 @@ tasks:
       context: |-
         Finality summary: ${{ tasks.observe.outputs.finality_summary }}
         Epochs behind: ${{ tasks.observe.outputs.epochs_behind }}
+        Finality broke at epoch: ${{ tasks.observe.outputs.finality_broke_epoch }}
+        Participation trend: ${{ tasks.observe.outputs.participation_trend }}
         Evidence: ${{ tasks.observe.outputs.evidence }}
+        Finality checkpoints: ${{ tasks.observe.outputs.finality_checkpoints }}
+        Participation by epoch: ${{ tasks.observe.outputs.participation_by_epoch }}
 
         Finality state diagnostic signatures:
         - healthy: Finality progressing normally, <=2 epochs behind, participation >66.7%.
-        - delayed: 3-8 epochs behind finality, participation hovering near 66.7%, possible recovery.
-        - stalled: >8 epochs behind, participation well below 66.7%, no recovery trend.
-        - split-driven: Finality delay caused by a network split — validators attesting on different forks dilute effective participation below threshold.
+        - delayed: 3-8 epochs behind finality, participation hovering near 66.7%, possible recovery. Participation trend is recovering or stable.
+        - stalled: >8 epochs behind, participation well below 66.7%, no recovery trend. Participation trend is stable or declining.
+        - split-driven: Finality delay caused by a network split — /forks shows multiple forks with different head_roots; nodes disagree on finalized checkpoints; validators attesting on different forks dilute effective participation below threshold.
         - unknown: Evidence insufficient to classify finality state.
       options: ["healthy", "delayed", "stalled", "split-driven", "unknown"]
     outputs:
@@ -167,4 +256,9 @@ outputs:
   finality_status_reasoning: ${{ tasks.classify_status.outputs.reasoning }}
   finality_summary: ${{ tasks.observe.outputs.finality_summary }}
   epochs_behind: ${{ tasks.observe.outputs.epochs_behind }}
+  finality_broke_epoch: ${{ tasks.observe.outputs.finality_broke_epoch }}
+  participation_trend: ${{ tasks.observe.outputs.participation_trend }}
   evidence: ${{ tasks.observe.outputs.evidence }}
+  report: ${{ tasks.observe.outputs.report }}
+  finality_checkpoints: ${{ tasks.observe.outputs.finality_checkpoints }}
+  participation_by_epoch: ${{ tasks.observe.outputs.participation_by_epoch }}
