@@ -64,7 +64,7 @@ inputs:
         required: [name]
 tasks:
   verify:
-    worker:
+    selection:
       match: >-
         'reasoning' in capabilities
         && (!has(inputs.provider) || inputs.provider == '' || inputs.provider in providers)
