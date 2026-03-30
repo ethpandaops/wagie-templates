@@ -84,7 +84,7 @@ inputs:
         type: string
 tasks:
   derive:
-    selection: {match: "'reasoning' in capabilities"}
+    selection: {match: "'reasoning' in skills"}
     run: derive-devnet-topology-profile
     quality-gate: "${{ has(result.profile_summary) && size(result.profile_summary) > 0 && has(result.effective_client_pairs) }}"
     instructions: |-

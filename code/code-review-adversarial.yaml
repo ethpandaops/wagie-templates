@@ -60,7 +60,7 @@ tasks:
       prev_round_scores: "${{ loop.round_scores }}"
     tasks:
       critic:
-        selection: {match: "'reasoning' in capabilities"}
+        selection: {match: "'reasoning' in skills"}
         run: adversarial-code-critic
         quality-gate: "${{ has(result.approved) && result.score >= 0 && result.score <= 100 && has(result.findings) && has(result.reasoning) && size(result.reasoning) > 0 }}"
         instructions: |

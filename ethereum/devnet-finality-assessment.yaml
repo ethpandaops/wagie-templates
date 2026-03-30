@@ -78,7 +78,7 @@ inputs:
         type: string
 tasks:
   observe:
-    selection: {match: "'tool-use' in capabilities && 'reasoning' in capabilities"}
+    selection: {match: "'tool-use' in skills && 'reasoning' in skills"}
     run: assess-devnet-finality
     quality-gate: "${{ has(result.finality_summary) && size(result.finality_summary) > 0 }}"
     instructions: |-

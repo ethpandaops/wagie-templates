@@ -102,7 +102,7 @@ tasks:
   analyze_finality_causes:
     needs: [context, baseline, assess_finality]
     if: ${{ tasks.baseline.outputs.has_finality_issues == true }}
-    selection: {match: "'tool-use' in capabilities && 'reasoning' in capabilities"}
+    selection: {match: "'tool-use' in skills && 'reasoning' in skills"}
     run: analyze-finality-causes
     retry:
       max: 1
@@ -251,7 +251,7 @@ tasks:
   investigate_generic:
     needs: [context, baseline]
     if: ${{ tasks.baseline.outputs.has_finality_issues != true }}
-    selection: {match: "'tool-use' in capabilities && 'reasoning' in capabilities"}
+    selection: {match: "'tool-use' in skills && 'reasoning' in skills"}
     run: investigate-devnet-incident
     retry:
       max: 1
@@ -407,7 +407,7 @@ tasks:
           description: Concrete log or RPC evidence examples supporting the diagnosis
   verify_findings:
     needs: [context, baseline, assess_finality, analyze_finality_causes, investigate_generic]
-    selection: {match: "'reasoning' in capabilities"}
+    selection: {match: "'reasoning' in skills"}
     run: verify-devnet-findings
     retry:
       max: 1
@@ -464,7 +464,7 @@ tasks:
           description: Issues found during verification
   conclude:
     needs: [context, baseline, assess_finality, analyze_finality_causes, investigate_generic, verify_findings]
-    selection: {match: "'reasoning' in capabilities"}
+    selection: {match: "'reasoning' in skills"}
     run: summarize-devnet-debug
     retry:
       max: 1

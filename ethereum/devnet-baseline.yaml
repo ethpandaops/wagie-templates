@@ -90,7 +90,7 @@ inputs:
         type: string
 tasks:
   observe:
-    selection: {match: "'tool-use' in capabilities && 'reasoning' in capabilities"}
+    selection: {match: "'tool-use' in skills && 'reasoning' in skills"}
     run: baseline-devnet-state
     quality-gate: "${{ has(result.baseline_summary) && size(result.baseline_summary) > 0 }}"
     instructions: |-
