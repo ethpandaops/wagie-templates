@@ -84,7 +84,7 @@ inputs:
         required: [question]
 tasks:
   investigate:
-    worker:
+    selection:
       match: >-
         'research' in skills
         && (!has(inputs.provider) || inputs.provider == '' || inputs.provider in providers)

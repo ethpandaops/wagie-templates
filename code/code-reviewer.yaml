@@ -79,7 +79,7 @@ inputs:
         required: [finding, reasoning]
 tasks:
   review:
-    worker:
+    selection:
       match: >-
         'reasoning' in capabilities
         && (!has(inputs.persona.requires_tools) || inputs.persona.requires_tools != true || 'tool-use' in capabilities)

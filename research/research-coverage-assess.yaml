@@ -74,7 +74,7 @@ inputs:
         required: [question]
 tasks:
   assess:
-    worker:
+    selection:
       match: >-
         'reasoning' in capabilities
         && (!has(inputs.provider) || inputs.provider == '' || inputs.provider in providers)

@@ -60,7 +60,7 @@ tasks:
       prev_round_scores: "${{ loop.round_scores }}"
     tasks:
       critic:
-        worker: {match: "'reasoning' in capabilities"}
+        selection: {match: "'reasoning' in capabilities"}
         run: adversarial-code-critic
         quality-gate: "${{ has(result.approved) && result.score >= 0 && result.score <= 100 && has(result.findings) && has(result.reasoning) && size(result.reasoning) > 0 }}"
         instructions: |
@@ -145,7 +145,7 @@ tasks:
       actor:
         needs: [critic]
         if: "${{ tasks.critic.outputs.approved != true }}"
-        worker: {match: "'coding' in skills"}
+        selection: {match: "'coding' in skills"}
         run: adversarial-code-actor
         quality-gate: "${{ has(result.revised_code) && size(result.revised_code) > 0 }}"
         instructions: |
