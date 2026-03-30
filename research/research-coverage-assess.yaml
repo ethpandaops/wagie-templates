@@ -74,11 +74,7 @@ inputs:
         required: [question]
 tasks:
   assess:
-    selection:
-      match: >-
-        'reasoning' in capabilities
-        && (!has(inputs.provider) || inputs.provider == '' || inputs.provider in providers)
-        && (!has(inputs.model) || inputs.model == '' || inputs.model in models)
+    selection: {match: "'reasoning' in capabilities"}
     run: assess-coverage
     quality-gate: "${{ has(result.gaps) && has(result.summary) && size(result.summary) > 0 && has(result.completeness) && has(result.scores) }}"
     instructions: |
