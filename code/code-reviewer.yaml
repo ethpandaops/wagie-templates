@@ -45,6 +45,9 @@ inputs:
         provider:
           type: string
           description: "Preferred provider for this reviewer (e.g. claudecode, codex)"
+        requires_tools:
+          type: boolean
+          description: "Whether this persona needs tool-use capability (e.g. web search, doc lookup). When true, the worker must have tool-use in addition to reasoning."
       required: [role, focus]
   threshold:
     type: number
@@ -59,11 +62,27 @@ inputs:
   context:
     type: string
     description: Optional repository or architectural context to inform the review
+  dismissed_findings:
+    type: array
+    description: "Findings from prior review iterations dismissed as false positives with reasoning. Reviewers must not re-flag these unless the code has materially changed."
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          finding:
+            type: string
+            description: The original finding that was dismissed
+          reasoning:
+            type: string
+            description: Why this was dismissed as a false positive
+        required: [finding, reasoning]
 tasks:
   review:
     worker:
       match: >-
         'reasoning' in capabilities
+        && (!has(inputs.persona.requires_tools) || inputs.persona.requires_tools != true || 'tool-use' in capabilities)
         && (!has(inputs.persona.provider) || inputs.persona.provider == '' || inputs.persona.provider in providers)
         && (!has(inputs.persona.model) || inputs.persona.model == '' || inputs.persona.model in models)
     run: persona-code-review
@@ -98,6 +117,29 @@ tasks:
       issues outside your persona's focus area — stay in your lane. If the
       diff has no relevance to your specialty, score 90+ and say so.
 
+      Dismissed findings (when provided):
+      You may receive dismissed_findings — a list of findings from previous
+      review iterations that the developer dismissed as false positives, each
+      with reasoning explaining why. You MUST respect these dismissals:
+      - Do not re-flag a dismissed finding unless the code has materially
+        changed in a way that invalidates the dismissal reasoning
+      - If you believe a dismissal is wrong, note your disagreement in your
+        reasoning output but do not include it as a finding
+      - Dismissed findings should not penalize the score
+
+      Tool-augmented review (when you have access to web search, doc lookup,
+      or similar tools):
+      - Use tools to verify findings against official documentation before
+        reporting them — a sourced finding is stronger than one from memory
+      - Search for deprecation notices, CVEs, and migration guides relevant
+        to libraries and APIs in the diff
+      - Include the source URL or doc reference in the finding's source field
+        when you can back it with external evidence
+      - If your persona has requires_tools set, you MUST actively research
+        every library, API, and pattern in the diff rather than relying on
+        static knowledge. Only report findings you can back with a concrete
+        external source
+
       Set verdict to "pass" if score >= threshold, "fail" otherwise.
     inputs:
       diff: "${{ inputs.diff }}"
@@ -106,6 +148,7 @@ tasks:
       repo: "${{ has(inputs.repo) ? inputs.repo : '' }}"
       ref: "${{ has(inputs.ref) ? inputs.ref : '' }}"
       context: "${{ has(inputs.context) ? inputs.context : '' }}"
+      dismissed_findings: "${{ has(inputs.dismissed_findings) ? inputs.dismissed_findings : [] }}"
     outputs:
       score: "${{ result.score }}"
       verdict: "${{ result.verdict }}"
@@ -140,6 +183,9 @@ tasks:
                 type: string
               suggestion:
                 type: string
+              source:
+                type: string
+                description: URL or documentation reference supporting this finding (required when persona has requires_tools set)
             required: [type, severity, location, observation, impact]
           description: Specific findings from this reviewer's perspective
         reasoning:

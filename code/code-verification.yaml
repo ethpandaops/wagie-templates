@@ -1,0 +1,205 @@
+name: ethpandaops/code-verification
+version: "1.0"
+description: >-
+  Use when code changes need dynamic verification; clones the repo, applies the
+  diff, discovers and runs the project's test suite, linter, and type checker,
+  then reports structured pass/fail results with logs.
+tags: ["code-review", "verification", "testing", "linting", "typecheck", "ci"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 5s
+      factor: 2
+      max-delay: 20s
+      jitter: true
+    timeout: 10m
+inputs:
+  repo:
+    type: string
+    required: true
+    description: "Source repository (owner/name or full URL)"
+  source_ref:
+    type: string
+    required: true
+    description: "Branch, tag, or commit SHA containing the changes to verify"
+  target_ref:
+    type: string
+    description: "Base branch to apply changes against. If omitted, the worker determines the default branch automatically."
+  checks:
+    type: array
+    description: >-
+      Ordered list of verification checks to run. Each check defines a category
+      and optional command override. If omitted, the worker auto-discovers checks
+      from project configuration files.
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          category:
+            type: string
+            enum: [test, lint, typecheck, build, format, custom]
+            description: The kind of check to run
+          command:
+            type: string
+            description: "Explicit command to run (e.g. 'npm test', 'go vet ./...'). If omitted, auto-detected from project config."
+          name:
+            type: string
+            description: "Display name for this check (e.g. 'Unit Tests', 'ESLint'). Auto-generated if omitted."
+          required:
+            type: boolean
+            description: "Whether failure of this check should fail the overall verification. Defaults to true."
+        required: [category]
+  patch:
+    type: artifact
+    description: "Optional revised code to apply on top of source_ref before running checks. Used by iterative fix loops to verify modified code against the project's test suite."
+  context:
+    type: string
+    description: Optional instructions about the project's build/test setup
+tasks:
+  verify:
+    worker: {match: "'tool-use' in capabilities"}
+    run: verify-code-changes
+    timeout: 10m
+    quality-gate: "${{ has(result.passed) && has(result.checks) && size(result.checks) > 0 && has(result.summary) && size(result.summary) > 0 }}"
+    instructions: |
+      You are a verification agent. Your job is to clone a repository, check
+      out the code under review, and run the project's tests, linter, type
+      checker, and any other verification the project defines. Report what
+      passed and what failed with the actual output logs.
+
+      Steps:
+
+      1. CLONE AND CHECKOUT: Clone the repo and check out source_ref. If
+         target_ref is provided, ensure you are on a branch that includes
+         the changes from source_ref relative to target_ref. If a patch
+         artifact is provided, apply it after checkout — it may be a
+         unified diff (apply with `git apply`) or complete file contents
+         with path headers (write files directly). Determine the format
+         and apply accordingly.
+
+      2. INSTALL DEPENDENCIES: Detect the project type and install
+         dependencies. Look for:
+         - package.json → npm ci / yarn install / pnpm install
+         - go.mod → go mod download
+         - requirements.txt / pyproject.toml → pip install / poetry install
+         - Cargo.toml → cargo fetch
+         - Makefile → check for install/setup targets
+         Do not skip this step — tests will fail without dependencies.
+
+      3. DISCOVER CHECKS: If no explicit checks are provided, auto-detect
+         from project configuration. Look for:
+
+         Tests:
+         - package.json scripts.test → npm test
+         - go.mod → go test ./...
+         - pytest.ini / pyproject.toml [tool.pytest] → pytest
+         - Cargo.toml → cargo test
+         - Makefile test target → make test
+
+         Linting:
+         - .eslintrc* / eslint.config* → npx eslint .
+         - .golangci.yml → golangci-lint run
+         - .flake8 / pyproject.toml [tool.ruff] → ruff check / flake8
+         - clippy → cargo clippy
+
+         Type checking:
+         - tsconfig.json → npx tsc --noEmit
+         - pyproject.toml [tool.mypy] / mypy.ini → mypy .
+
+         Build:
+         - package.json scripts.build → npm run build
+         - go.mod → go build ./...
+         - Cargo.toml → cargo build
+
+         Format checking:
+         - prettier → npx prettier --check .
+         - gofmt → gofmt -l .
+         - black → black --check .
+         - rustfmt → cargo fmt --check
+
+         If explicit checks are provided with a command, use that command.
+         If a check has a category but no command, auto-detect the command
+         for that category.
+
+      4. RUN CHECKS: Execute each check in order. For each check:
+         - Record the exact command run
+         - Capture stdout and stderr
+         - Record exit code
+         - Record duration
+         - Mark as passed (exit 0) or failed (non-zero exit)
+         - If a check fails and is marked as required (default), continue
+           running remaining checks but mark overall verification as failed
+
+      5. REPORT: For each check, provide the category, command, pass/fail
+         status, and the last 50 lines of output (or full output if shorter).
+         Truncate verbose output but always include the failure-relevant lines.
+
+      IMPORTANT:
+      - Run ALL checks even if earlier ones fail — do not short-circuit
+      - Do not modify the code, fix tests, or add missing configuration
+      - If a check category has no discoverable configuration, skip it and
+        note it was skipped (do not invent commands)
+      - If dependency installation fails, still attempt checks that might
+        work without dependencies (like format/lint on source files)
+    inputs:
+      repo: "${{ inputs.repo }}"
+      source_ref: "${{ inputs.source_ref }}"
+      target_ref: "${{ has(inputs.target_ref) ? inputs.target_ref : '' }}"
+      checks: "${{ has(inputs.checks) ? inputs.checks : [] }}"
+      patch: "${{ has(inputs.patch) ? inputs.patch : '' }}"
+      context: "${{ has(inputs.context) ? inputs.context : '' }}"
+    outputs:
+      passed: "${{ result.passed }}"
+      checks: "${{ result.checks }}"
+      summary: "${{ result.summary }}"
+      schema:
+        passed:
+          type: boolean
+          description: Whether all required checks passed
+        checks:
+          type: array
+          items:
+            type: object
+            properties:
+              category:
+                type: string
+                enum: [test, lint, typecheck, build, format, custom]
+              name:
+                type: string
+                description: Display name for this check
+              command:
+                type: string
+                description: The exact command that was executed
+              passed:
+                type: boolean
+                description: Whether this check passed (exit code 0)
+              required:
+                type: boolean
+                description: Whether this check was required for overall pass
+              exit_code:
+                type: number
+                description: Process exit code
+              duration_seconds:
+                type: number
+                description: How long the check took to run
+              output:
+                type: string
+                description: Truncated stdout/stderr output (last 50 lines or failure-relevant lines)
+              skipped:
+                type: boolean
+                description: Whether this check was skipped (no config found)
+              skip_reason:
+                type: string
+                description: Why the check was skipped
+            required: [category, name, passed]
+          description: Results for each verification check
+        summary:
+          type: string
+          description: "One-line summary (e.g. '4/5 checks passed: tests, lint, build OK; typecheck FAILED')"
+outputs:
+  passed: ${{ tasks.verify.outputs.passed }}
+  checks: ${{ tasks.verify.outputs.checks }}
+  summary: ${{ tasks.verify.outputs.summary }}
