@@ -45,6 +45,7 @@ tasks:
         current_code: "${{ inputs.diff }}"
         approved: "${{ false }}"
         findings_history: "${{ '' }}"
+        dismissed_findings: "${{ [] }}"
         round_scores: "${{ '' }}"
       until: "${{ loop.approved }}"
       on-max-exhausted: continue
@@ -55,6 +56,7 @@ tasks:
       ref: "${{ has(inputs.ref) ? inputs.ref : '' }}"
       context: "${{ has(inputs.context) ? inputs.context : '' }}"
       findings_history: "${{ loop.findings_history }}"
+      dismissed_findings: "${{ loop.dismissed_findings }}"
       prev_round_scores: "${{ loop.round_scores }}"
     tasks:
       critic:
@@ -87,6 +89,14 @@ tasks:
           work and did not introduce new problems. Do not re-flag issues
           that were properly fixed.
 
+          Dismissed findings: You may receive dismissed_findings — issues
+          from prior rounds that the actor dismissed as false positives with
+          reasoning. You MUST respect these dismissals unless the code has
+          materially changed in a way that invalidates the reasoning. If you
+          disagree with a dismissal, note it in your reasoning but do not
+          re-flag it as a finding. Being paranoid does not mean ignoring
+          evidence — a well-reasoned dismissal is evidence.
+
           Score: 90+ for approval-worthy, 70-89 minor issues only,
           50-69 notable problems, below 50 serious concerns.
         inputs:
@@ -96,6 +106,7 @@ tasks:
           ref: "${{ inputs.ref }}"
           context: "${{ inputs.context }}"
           findings_history: "${{ inputs.findings_history }}"
+          dismissed_findings: "${{ inputs.dismissed_findings }}"
         outputs:
           approved: "${{ result.approved }}"
           score: "${{ result.score }}"
@@ -148,7 +159,12 @@ tasks:
           - If the finding is valid but the severity is overstated: fix it
             anyway, the cost of fixing is low
           - If the finding is a false positive: leave the code unchanged
-            but note why in your response
+            and add it to false_positives with specific reasoning. Be
+            detailed — your reasoning will be shown to the critic in the
+            next round to prevent re-flagging
+
+          You may receive previously dismissed findings. Do not re-dismiss
+          findings already in the dismissed list — only add new ones.
 
           Do not over-engineer defenses. A targeted fix is better than a
           rewrite. Do not add complexity beyond what the findings require.
@@ -158,6 +174,7 @@ tasks:
           diff: "${{ inputs.diff }}"
           findings: "${{ tasks.critic.outputs.findings }}"
           context: "${{ inputs.context }}"
+          dismissed_findings: "${{ inputs.dismissed_findings }}"
         outputs:
           revised_code: "${{ result.revised_code }}"
           fixes_applied: "${{ result.fixes_applied }}"
@@ -170,17 +187,34 @@ tasks:
             fixes_applied:
               type: array
               items:
-                type: string
-              description: List of fixes applied
+                type: object
+                properties:
+                  finding:
+                    type: string
+                    description: The finding that was addressed
+                  change:
+                    type: string
+                    description: What was changed and why
+                required: [finding, change]
+              description: Log of fixes applied in this round
             false_positives:
               type: array
               items:
-                type: string
+                type: object
+                properties:
+                  finding:
+                    type: string
+                    description: The finding dismissed as false positive
+                  reasoning:
+                    type: string
+                    description: Why this is a false positive
+                required: [finding, reasoning]
               description: Findings dismissed as false positives with reasoning
     outputs:
       current_code: "${{ has(tasks.actor.outputs.revised_code) ? tasks.actor.outputs.revised_code : inputs.diff }}"
       approved: "${{ tasks.critic.outputs.approved }}"
       findings_history: "${{ inputs.findings_history + '\n---Round---\nScore: ' + string(tasks.critic.outputs.score) + '\n' + tasks.critic.outputs.reasoning }}"
+      dismissed_findings: "${{ inputs.dismissed_findings + (has(tasks.actor.outputs.false_positives) ? tasks.actor.outputs.false_positives : []) }}"
       round_scores: "${{ inputs.prev_round_scores + string(tasks.critic.outputs.score) + ',' }}"
       schema:
         current_code:
@@ -189,6 +223,16 @@ tasks:
           type: boolean
         findings_history:
           type: string
+        dismissed_findings:
+          type: array
+          items:
+            type: object
+            properties:
+              finding:
+                type: string
+              reasoning:
+                type: string
+            required: [finding, reasoning]
         round_scores:
           type: string
 outputs:
@@ -197,3 +241,4 @@ outputs:
   converged: ${{ tasks.adversarial.loop.converged }}
   rounds_used: ${{ tasks.adversarial.loop.iteration }}
   findings_history: ${{ tasks.adversarial.outputs.findings_history }}
+  dismissed_findings: ${{ tasks.adversarial.outputs.dismissed_findings }}

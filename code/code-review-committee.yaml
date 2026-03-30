@@ -40,6 +40,11 @@ inputs:
         focus: "Naming clarity, function length, code duplication, coupling between modules, test coverage gaps"
         principles: "Code is read far more than written. Prefer clear over clever. Each function should have one reason to change."
         severity_default: medium
+      - role: Research Reviewer
+        focus: "API correctness against official docs, deprecated patterns, outdated dependencies, known CVEs, library misuse, stale configuration options"
+        principles: "Do not trust static knowledge — verify every library, API, and pattern against current official documentation. Only flag issues you can back with a concrete external source. Quality over quantity."
+        severity_default: medium
+        requires_tools: true
       - role: General Reviewer
         focus: "Any issue not covered by specialist reviewers — integration problems, API misuse, business logic errors, unexpected interactions between components, missing validation at system boundaries"
         principles: "Review without a specific lens. Look for what the specialists would miss. Focus on how the pieces fit together, not how each piece works in isolation."
@@ -63,6 +68,9 @@ inputs:
           provider:
             type: string
             description: "Preferred provider for this reviewer (e.g. claudecode, codex)"
+          requires_tools:
+            type: boolean
+            description: "Whether this persona needs tool-use capability (e.g. web search, doc lookup)"
         required: [role, focus]
   repo:
     type: string
@@ -77,6 +85,21 @@ inputs:
     type: number
     default: 90
     description: Minimum average score across reviewers to pass
+  dismissed_findings:
+    type: array
+    description: "Findings from prior iterations dismissed as false positives with reasoning, passed through to each reviewer"
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          finding:
+            type: string
+            description: The original finding that was dismissed
+          reasoning:
+            type: string
+            description: Why this was dismissed as a false positive
+        required: [finding, reasoning]
 tasks:
   review_panel:
     strategy:
@@ -90,6 +113,7 @@ tasks:
       repo: "${{ has(inputs.repo) ? inputs.repo : '' }}"
       ref: "${{ has(inputs.ref) ? inputs.ref : '' }}"
       context: "${{ has(inputs.context) ? inputs.context : '' }}"
+      dismissed_findings: "${{ has(inputs.dismissed_findings) ? inputs.dismissed_findings : [] }}"
     tasks:
       single_review:
         uses: ethpandaops/code-reviewer@1
@@ -100,6 +124,7 @@ tasks:
           repo: "${{ inputs.repo }}"
           ref: "${{ inputs.ref }}"
           context: "${{ inputs.context }}"
+          dismissed_findings: "${{ inputs.dismissed_findings }}"
         outputs:
           score: score
           verdict: verdict
@@ -135,6 +160,9 @@ tasks:
                       type: string
                     suggestion:
                       type: string
+                    source:
+                      type: string
+                      description: "URL or doc reference (present when finding is backed by external evidence)"
                   required: [type, severity, observation]
               reasoning:
                 type: string
@@ -165,13 +193,18 @@ tasks:
       3. Resolve conflicts — when reviewers disagree on severity or
          whether something is an issue, weigh the specialist in that
          domain more heavily (e.g. Security Auditor wins on security
-         findings, Performance Engineer wins on performance findings)
+         findings, Performance Engineer wins on performance findings).
+         Findings that include a source citation (URL, doc reference, CVE)
+         win over contradicting findings based on memory alone
       4. Filter noise — drop findings that meet ALL of these criteria:
          severity is low or info, only one reviewer flagged it, and the
          evidence is weak or speculative. Keep low-severity findings if
-         multiple reviewers agree
+         multiple reviewers agree. NEVER filter findings that include a
+         source citation — sourced findings are evidence, not speculation
       5. Rank remaining findings by severity (critical > high > medium >
-         low) then by confidence (multi-reviewer > single-reviewer)
+         low) then by confidence (multi-reviewer > single-reviewer).
+         Findings with source citations get a confidence floor of 70
+         regardless of agreement count
       6. Determine verdict: approve (avg >= threshold and no critical
          findings), request_changes (any critical or high findings),
          reject (avg < 50 or multiple critical findings)
@@ -179,6 +212,7 @@ tasks:
       For each unified finding, record which reviewers flagged it and
       assign confidence: 90+ if 3+ reviewers agree, 70-89 if 2 agree,
       50-69 if only one reviewer flagged it with strong evidence.
+      Preserve the source field from findings when present.
 
       Do not introduce new findings — you are aggregating, not reviewing.
 
@@ -226,6 +260,9 @@ tasks:
                 type: string
               suggestion:
                 type: string
+              source:
+                type: string
+                description: "URL or doc reference (present when finding is backed by external evidence)"
               agreed_by:
                 type: array
                 items:

@@ -2,10 +2,11 @@ name: ethpandaops/code-review-fix-loop
 version: "1.0"
 description: >-
   Use when code needs iterative improvement via committee review; reviews with
-  the full persona panel, fixes flagged issues, re-reviews until the committee
-  approves or iterations are exhausted. Tracks findings-count decay for
+  the full persona panel, fixes flagged issues, optionally verifies against the
+  project's test suite, and re-reviews until the committee approves or iterations
+  are exhausted. Tracks findings-count decay and verification status for
   convergence.
-tags: ["code-review", "fix-loop", "iterative", "convergence"]
+tags: ["code-review", "fix-loop", "iterative", "convergence", "verification"]
 defaults:
   retry:
     max: 1
@@ -23,27 +24,10 @@ inputs:
     description: "Git diff output or equivalent patch content (e.g. git diff main...HEAD)"
   personas:
     type: array
-    description: Array of reviewer personas for the committee
-    default:
-      - role: Security Auditor
-        focus: "Injection flaws, authentication/authorization gaps, secrets exposure, input validation, OWASP Top 10"
-        principles: "Assume code is vulnerable until proven otherwise. Flag any path where untrusted input reaches a sensitive operation without validation."
-        severity_default: high
-      - role: Correctness Reviewer
-        focus: "Logic errors, off-by-one bugs, null/undefined handling, race conditions, edge cases, error propagation"
-        principles: "Mentally execute each code path. Ask what happens with empty input, maximum values, concurrent access, and partial failures."
-        severity_default: high
-      - role: Performance Engineer
-        focus: "Algorithmic complexity, N+1 queries, unnecessary allocations, missing caching, blocking operations in hot paths"
-        principles: "Flag obvious inefficiencies but do not speculate without evidence. Measure before optimizing — unless the cost is clearly O(n^2) or worse."
-        severity_default: medium
-      - role: Maintainability Reviewer
-        focus: "Naming clarity, function length, code duplication, coupling between modules, test coverage gaps"
-        principles: "Code is read far more than written. Prefer clear over clever. Each function should have one reason to change."
-        severity_default: medium
-      - role: General Reviewer
-        focus: "Any issue not covered by specialist reviewers — integration problems, API misuse, business logic errors, unexpected interactions between components, missing validation at system boundaries"
-        principles: "Review without a specific lens. Look for what the specialists would miss. Focus on how the pieces fit together, not how each piece works in isolation."
+    description: >-
+      Array of reviewer personas for the committee. If omitted, the committee's
+      default panel is used (Security Auditor, Correctness, Performance,
+      Maintainability, Research Reviewer, General Reviewer).
     schema:
       type: array
       items:
@@ -64,16 +48,37 @@ inputs:
           provider:
             type: string
             description: "Preferred provider for this reviewer (e.g. claudecode, codex)"
+          requires_tools:
+            type: boolean
+            description: "Whether this persona needs tool-use capability (e.g. web search, doc lookup)"
         required: [role, focus]
   repo:
     type: string
-    description: "Repository identifier (e.g. owner/name) for context"
+    description: "Repository to clone for verification (owner/name or full URL). When provided, enables test/lint/typecheck verification after each fix."
   ref:
     type: string
-    description: "Git ref being reviewed (e.g. branch name, PR number)"
+    description: "Git ref being reviewed (e.g. branch name, commit SHA). Used as the checkout target for verification."
   context:
     type: string
     description: Optional repository or architectural context
+  checks:
+    type: array
+    description: "Explicit verification checks to run. If omitted, auto-discovered from project config. Only used when repo is provided."
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          category:
+            type: string
+            enum: [test, lint, typecheck, build, format, custom]
+          command:
+            type: string
+          name:
+            type: string
+          required:
+            type: boolean
+        required: [category]
   max_iterations:
     type: number
     default: 3
@@ -91,30 +96,36 @@ tasks:
         score: "${{ 0 }}"
         findings_count: "${{ 999 }}"
         prev_findings_count: "${{ 999 }}"
+        verification_passed: "${{ true }}"
         iteration_log: "${{ '' }}"
+        dismissed_findings: "${{ [] }}"
         false_positive_count: "${{ 0 }}"
-      until: "${{ (loop.score >= inputs.threshold && loop.findings_count == 0) || (loop.findings_count > loop.prev_findings_count && loop.prev_findings_count < 999) }}"
+      until: "${{ (loop.score >= inputs.threshold && loop.findings_count == 0 && loop.verification_passed) || (loop.findings_count > loop.prev_findings_count && loop.prev_findings_count < 999) }}"
       on-max-exhausted: continue
     inputs:
       diff: "${{ loop.current_code }}"
-      personas: "${{ inputs.personas }}"
       repo: "${{ has(inputs.repo) ? inputs.repo : '' }}"
       ref: "${{ has(inputs.ref) ? inputs.ref : '' }}"
       context: "${{ has(inputs.context) ? inputs.context : '' }}"
+      personas: "${{ has(inputs.personas) ? inputs.personas : [] }}"
+      checks: "${{ has(inputs.checks) ? inputs.checks : [] }}"
       threshold: "${{ inputs.threshold }}"
       prev_findings_count: "${{ loop.findings_count }}"
+      prev_verification_passed: "${{ loop.verification_passed }}"
       prev_log: "${{ loop.iteration_log }}"
+      dismissed_findings: "${{ loop.dismissed_findings }}"
       prev_fp_count: "${{ loop.false_positive_count }}"
     tasks:
       review:
         uses: ethpandaops/code-review-committee@1
         inputs:
           diff: "${{ inputs.diff }}"
-          personas: "${{ inputs.personas }}"
+          personas: "${{ size(inputs.personas) > 0 ? inputs.personas : [] }}"
           repo: "${{ inputs.repo }}"
           ref: "${{ inputs.ref }}"
           context: "${{ inputs.context }}"
           threshold: "${{ inputs.threshold }}"
+          dismissed_findings: "${{ inputs.dismissed_findings }}"
         outputs:
           average_score: average_score
           verdict: verdict
@@ -137,17 +148,27 @@ tasks:
           If a fix would conflict with another finding, note the conflict
           and choose the safer option.
 
+          If verification ran on the previous iteration and failed, pay
+          attention to what broke — do not introduce fixes that would cause
+          the same verification failures.
+
           If any finding looks like a false positive (the code is actually
           correct, or fixing it would break something else, or the reviewer
           misunderstood the intent), do NOT fix it. Instead list it in
-          false_positives with your reasoning. Recurring false positives
-          across iterations signal issues the reviewers cannot resolve.
+          false_positives with your reasoning. Be specific in your reasoning —
+          it will be fed back to reviewers in the next iteration to prevent
+          them from re-flagging the same issue.
+
+          You may also receive previously dismissed findings. Do not re-dismiss
+          findings that are already in the dismissed list — only add new ones.
 
           Return the complete revised code, not just patches.
         inputs:
           diff: "${{ inputs.diff }}"
           findings: "${{ tasks.review.outputs.findings }}"
           context: "${{ inputs.context }}"
+          dismissed_findings: "${{ inputs.dismissed_findings }}"
+          prev_verification_passed: "${{ inputs.prev_verification_passed }}"
         outputs:
           revised_code: "${{ result.revised_code }}"
           fixes_applied: "${{ result.fixes_applied }}"
@@ -183,20 +204,37 @@ tasks:
                     description: Why this is a false positive
                 required: [finding, reasoning]
               description: Findings the developer believes are incorrect or unfixable
+      verify:
+        needs: [fix]
+        if: "${{ inputs.repo != '' && has(tasks.fix.outputs.revised_code) }}"
+        uses: ethpandaops/code-verification@1
+        inputs:
+          repo: "${{ inputs.repo }}"
+          source_ref: "${{ inputs.ref }}"
+          patch: "${{ tasks.fix.outputs.revised_code }}"
+          checks: "${{ inputs.checks }}"
+          context: "${{ inputs.context }}"
+        outputs:
+          passed: passed
+          checks: checks
+          summary: summary
       log_iteration:
-        needs: [review, fix]
+        needs: [review, fix, verify]
         run: log-review-iteration
         quality-gate: "${{ has(result.iteration_summary) && size(result.iteration_summary) > 0 }}"
         instructions: |
           Produce a one-line summary of this review-fix iteration including:
-          score, findings count, fixes applied, and whether findings decreased
-          from the previous round (converging) or increased (regressing).
+          score, findings count, fixes applied, verification result (if run),
+          and whether findings decreased from the previous round (converging)
+          or increased (regressing).
         inputs:
           score: "${{ tasks.review.outputs.average_score }}"
           verdict: "${{ tasks.review.outputs.verdict }}"
           findings_count: "${{ tasks.review.outputs.findings.size() }}"
           fixes_applied: "${{ has(tasks.fix.outputs.fixes_applied) ? tasks.fix.outputs.fixes_applied.size() : 0 }}"
           prev_findings_count: "${{ inputs.prev_findings_count }}"
+          verification_passed: "${{ has(tasks.verify.outputs.passed) ? tasks.verify.outputs.passed : true }}"
+          verification_summary: "${{ has(tasks.verify.outputs.summary) ? tasks.verify.outputs.summary : 'skipped' }}"
         outputs:
           iteration_summary: "${{ result.iteration_summary }}"
           schema:
@@ -208,8 +246,10 @@ tasks:
       score: "${{ tasks.review.outputs.average_score }}"
       findings_count: "${{ tasks.review.outputs.findings.size() }}"
       prev_findings_count: "${{ inputs.prev_findings_count }}"
+      verification_passed: "${{ has(tasks.verify.outputs.passed) ? tasks.verify.outputs.passed : true }}"
       iteration_log: "${{ inputs.prev_log + '\n' + tasks.log_iteration.outputs.iteration_summary }}"
-      false_positive_count: "${{ inputs.prev_fp_count + (has(tasks.fix.outputs.false_positives) ? tasks.fix.outputs.false_positives.size() : 0) }}"
+      dismissed_findings: "${{ inputs.dismissed_findings + (has(tasks.fix.outputs.false_positives) ? tasks.fix.outputs.false_positives : []) }}"
+      false_positive_count: "${{ inputs.dismissed_findings.size() + (has(tasks.fix.outputs.false_positives) ? tasks.fix.outputs.false_positives.size() : 0) }}"
       schema:
         current_code:
           type: string
@@ -219,8 +259,20 @@ tasks:
           type: number
         prev_findings_count:
           type: number
+        verification_passed:
+          type: boolean
         iteration_log:
           type: string
+        dismissed_findings:
+          type: array
+          items:
+            type: object
+            properties:
+              finding:
+                type: string
+              reasoning:
+                type: string
+            required: [finding, reasoning]
         false_positive_count:
           type: number
 outputs:
@@ -228,5 +280,7 @@ outputs:
   score: ${{ tasks.improve.outputs.score }}
   converged: ${{ tasks.improve.loop.converged }}
   iterations_used: ${{ tasks.improve.loop.iteration }}
+  verification_passed: ${{ tasks.improve.outputs.verification_passed }}
   iteration_log: ${{ tasks.improve.outputs.iteration_log }}
+  dismissed_findings: ${{ tasks.improve.outputs.dismissed_findings }}
   false_positive_count: ${{ tasks.improve.outputs.false_positive_count }}
