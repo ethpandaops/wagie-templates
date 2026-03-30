@@ -93,7 +93,7 @@ tasks:
       fallback_pair_added: fallback_pair_added
   design_minimal_config:
     if: ${{ inputs.config_mode == 'minimal' }}
-    selection: {match: "'reasoning' in skills"}
+    selection: {match: "'reasoning' in capabilities"}
     run: design-kurtosis-ethereum-config
     retry:
       max: 2

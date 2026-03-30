@@ -64,7 +64,7 @@ inputs:
         required: [name]
 tasks:
   verify:
-    selection: {match: "'reasoning' in skills"}
+    selection: {match: "'reasoning' in capabilities"}
     run: adversarial-verification
     quality-gate: "${{ has(result.verified_findings) && size(result.verified_findings) > 0 && has(result.issues) && has(result.open_questions) && has(result.verification_summary) && size(result.verification_summary) > 0 }}"
     instructions: |

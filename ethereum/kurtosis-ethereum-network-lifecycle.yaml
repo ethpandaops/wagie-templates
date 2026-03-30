@@ -113,7 +113,7 @@ tasks:
   launch_network:
     needs: [design_config]
     if: ${{ inputs.launch == true }}
-    selection: {match: "'reasoning' in skills && 'tool-use' in skills"}
+    selection: {match: "'reasoning' in capabilities && 'tool-use' in capabilities"}
     run: launch-kurtosis-ethereum-package
     retry:
       max: 1
@@ -172,7 +172,7 @@ tasks:
   observe_network:
     needs: [design_config, launch_network, inspect_enclave]
     if: ${{ inputs.launch == true && inputs.observation_window != '0' && inputs.observation_window != '0 epochs' }}
-    selection: {match: "'reasoning' in skills && 'tool-use' in skills"}
+    selection: {match: "'reasoning' in capabilities && 'tool-use' in capabilities"}
     run: validate-kurtosis-ethereum-network
     retry:
       max: 1
@@ -262,7 +262,7 @@ tasks:
           description: Suggested follow-up actions after observation
   summarize_result:
     needs: [design_config, launch_network, inspect_enclave, observe_network]
-    selection: {match: "'reasoning' in skills"}
+    selection: {match: "'reasoning' in capabilities"}
     run: summarize-kurtosis-ethereum-network
     retry:
       max: 1

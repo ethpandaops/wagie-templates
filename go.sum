@@ -94,8 +94,8 @@ github.com/ethpandaops/codex-agent-sdk-go v0.0.7 h1:AB+gzDvAsuKCdiOoq2pcQk2yUDSE
 github.com/ethpandaops/codex-agent-sdk-go v0.0.7/go.mod h1:zVhm7aO54mTvTZQMsc+oaSikiG9I+FIEuoDVMtMW5dQ=
 github.com/ethpandaops/openrouter-agent-sdk-go v0.0.1 h1:/TWtRC0L6rfkIRpH9+v3jPaGncT4ZyYMOT2HFjaiazI=
 github.com/ethpandaops/openrouter-agent-sdk-go v0.0.1/go.mod h1:VDVZlOVot8Uo4HQXH+IDstg7QJ62gfBeah4EC5Btt7E=
-github.com/ethpandaops/wagie v0.0.47-0.20260330022120-e41f0455081e h1:6tAiDslTD+raW3/LreW32ZFo2d4NmnYOfSxLNy2zpT0=
-github.com/ethpandaops/wagie v0.0.47-0.20260330022120-e41f0455081e/go.mod h1:TN/Z580Eb3cpvDsM1msHR60uiu/KZlRIG+YH8Odbr7I=
+github.com/ethpandaops/wagie v0.0.47-0.20260330222608-8268efd05a96 h1:3+/MWsTmueG07gP9dT5/AXRAp9+MZtOk8NWaG6K5F4k=
+github.com/ethpandaops/wagie v0.0.47-0.20260330222608-8268efd05a96/go.mod h1:TN/Z580Eb3cpvDsM1msHR60uiu/KZlRIG+YH8Odbr7I=
 github.com/fatih/color v1.19.0 h1:Zp3PiM21/9Ld6FzSKyL5c/BULoe/ONr9KlbYVOfG8+w=
 github.com/fatih/color v1.19.0/go.mod h1:zNk67I0ZUT1bEGsSGyCZYZNrHuTkJJB+r6Q9VuMi0LE=
 github.com/ghodss/yaml v1.0.0 h1:wQHKEahhL6wmXdzwWG11gIVCkOv05bNOh+Rxn0yngAk=

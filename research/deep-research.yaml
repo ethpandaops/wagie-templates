@@ -96,7 +96,7 @@ tasks:
           findings: findings
       accumulate:
         needs: [investigate]
-        selection: {match: "'reasoning' in skills"}
+        selection: {match: "'reasoning' in capabilities"}
         run: accumulate-research-findings
         quality-gate: "${{ has(result.findings) }}"
         instructions: |

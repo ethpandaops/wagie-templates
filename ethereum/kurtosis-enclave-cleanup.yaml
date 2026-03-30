@@ -14,7 +14,7 @@ inputs:
     description: Whether to force enclave removal
 tasks:
   cleanup_enclave:
-    selection: {match: "'tool-use' in skills"}
+    selection: {match: "'tool-use' in capabilities"}
     run: cleanup-kurtosis-enclave
     quality-gate: "${{ has(result.removed) }}"
     instructions: |-

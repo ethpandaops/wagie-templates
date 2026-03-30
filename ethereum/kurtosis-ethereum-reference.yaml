@@ -30,7 +30,7 @@ inputs:
     description: Kurtosis package reference to inspect
 tasks:
   fetch_reference:
-    selection: {match: "'tool-use' in skills"}
+    selection: {match: "'tool-use' in capabilities"}
     run: fetch-kurtosis-ethereum-reference
     quality-gate: "${{ has(result.reference_summary) && size(result.reference_summary) > 0 }}"
     instructions: |-

@@ -24,7 +24,7 @@ tasks:
         jitter: true
       timeout: 2m
     selection:
-      match: "'tool-use' in skills"
+      match: "'tool-use' in capabilities"
     quality-gate: "${{ has(result.notes_url) && size(result.notes_url) > 0 && has(result.notes_summary) && size(result.notes_summary) > 0 }}"
     instructions: |-
       Resolve and summarize the canonical notes for the target devnet.

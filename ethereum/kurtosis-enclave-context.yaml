@@ -31,7 +31,7 @@ inputs:
     description: Whether to inspect targeted service logs during context collection
 tasks:
   inspect_enclave:
-    selection: {match: "'reasoning' in skills && 'tool-use' in skills"}
+    selection: {match: "'reasoning' in capabilities && 'tool-use' in capabilities"}
     run: inspect-kurtosis-enclave
     quality-gate: "${{ has(result.status_summary) && size(result.status_summary) > 0 && has(result.service_names) }}"
     instructions: |-
