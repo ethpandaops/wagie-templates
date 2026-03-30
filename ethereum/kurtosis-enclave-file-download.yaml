@@ -24,7 +24,7 @@ inputs:
     description: Kurtosis file name to download
 tasks:
   download_file:
-    worker: {match: "'tool-use' in capabilities"}
+    selection: {match: "'tool-use' in capabilities"}
     run: download-kurtosis-file
     quality-gate: "${{ has(result.summary) }}"
     instructions: |-

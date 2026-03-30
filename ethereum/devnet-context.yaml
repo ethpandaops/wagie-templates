@@ -42,7 +42,7 @@ tasks:
         max-delay: 30s
         jitter: true
       timeout: 2m
-    worker:
+    selection:
       match: "'tool-use' in capabilities && 'reasoning' in capabilities"
     quality-gate: "${{ has(result.network_name) && size(result.network_name) > 0 && has(result.investigation_timeframe) && size(result.investigation_timeframe) > 0 && has(result.data_profile) && has(result.summary) && size(result.summary) > 0 }}"
     instructions: |-

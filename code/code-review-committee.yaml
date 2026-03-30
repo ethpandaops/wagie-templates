@@ -169,7 +169,7 @@ tasks:
             required: [role, score, verdict, findings, reasoning]
   judge:
     needs: [review_panel]
-    worker: {match: "'reasoning' in capabilities"}
+    selection: {match: "'reasoning' in capabilities"}
     run: review-committee-judge
     quality-gate: "${{ result.average_score >= 0 && result.average_score <= 100 && has(result.verdict) && (result.verdict == 'approve' || result.verdict == 'request_changes' || result.verdict == 'reject') && has(result.findings) && has(result.summary) && size(result.summary) > 0 && result.agreement_score >= 0 && result.agreement_score <= 100 }}"
     instructions: |

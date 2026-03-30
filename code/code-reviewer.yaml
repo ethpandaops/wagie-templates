@@ -79,12 +79,7 @@ inputs:
         required: [finding, reasoning]
 tasks:
   review:
-    worker:
-      match: >-
-        'reasoning' in capabilities
-        && (!has(inputs.persona.requires_tools) || inputs.persona.requires_tools != true || 'tool-use' in capabilities)
-        && (!has(inputs.persona.provider) || inputs.persona.provider == '' || inputs.persona.provider in providers)
-        && (!has(inputs.persona.model) || inputs.persona.model == '' || inputs.persona.model in models)
+    selection: {match: "'reasoning' in capabilities"}
     run: persona-code-review
     quality-gate: "${{ result.score >= 0 && result.score <= 100 && has(result.verdict) && (result.verdict == 'pass' || result.verdict == 'fail') && has(result.findings) && has(result.reasoning) && size(result.reasoning) > 0 }}"
     instructions: |
