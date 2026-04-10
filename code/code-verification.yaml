@@ -60,7 +60,7 @@ inputs:
     description: Optional instructions about the project's build/test setup
 tasks:
   verify:
-    selection: {match: "'tool-use' in capabilities"}
+    selection: {capabilities: [tool-use]}
     run: verify-code-changes
     timeout: 10m
     quality-gate: "${{ has(result.passed) && has(result.checks) && size(result.checks) > 0 && has(result.summary) && size(result.summary) > 0 }}"

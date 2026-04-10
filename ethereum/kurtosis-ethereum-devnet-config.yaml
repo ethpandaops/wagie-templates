@@ -99,7 +99,7 @@ tasks:
       extracted_items: extracted_items
   derive_config:
     needs: [devnet_notes, topology_profile, package_reference]
-    selection: {match: "'reasoning' in capabilities"}
+    selection: {capabilities: [reasoning]}
     run: derive-kurtosis-ethereum-devnet-config
     retry:
       max: 2

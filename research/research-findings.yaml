@@ -85,9 +85,9 @@ inputs:
 tasks:
   investigate:
     selection:
+      skills: [research]
       match: >-
-        'research' in skills
-        && (!has(inputs.provider) || inputs.provider == '' || inputs.provider in providers)
+        (!has(inputs.provider) || inputs.provider == '' || inputs.provider in providers)
         && (!has(inputs.model) || inputs.model == '' || inputs.model in models)
     run: research
     quality-gate: "${{ has(result.findings) && size(result.findings) > 0 }}"

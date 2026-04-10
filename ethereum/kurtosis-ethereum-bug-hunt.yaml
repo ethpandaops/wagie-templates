@@ -168,7 +168,7 @@ tasks:
           suggested_gaps: suggested_gaps
       accumulate_findings:
         needs: [probe_round]
-        selection: {match: "'reasoning' in capabilities"}
+        selection: {capabilities: [reasoning]}
         run: accumulate-kurtosis-ethereum-bug-findings
         quality-gate: "${{ has(result.findings) }}"
         instructions: |
@@ -335,7 +335,7 @@ tasks:
           type: string
   render_report:
     needs: [hunt]
-    selection: {match: "'writing' in skills"}
+    selection: {skills: [writing]}
     run: render-kurtosis-ethereum-bug-hunt-report
     quality-gate: "${{ has(result.report) && size(result.report) > 0 && has(result.summary) && size(result.summary) > 0 }}"
     instructions: |-

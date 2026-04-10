@@ -32,7 +32,7 @@ inputs:
     description: "Target branch, tag, or commit to diff against. If omitted, the worker determines the default branch (main/master) automatically."
 tasks:
   extract_diff:
-    selection: {match: "'tool-use' in capabilities"}
+    selection: {capabilities: [tool-use]}
     run: extract-git-diff
     quality-gate: "${{ has(result.files_changed) && result.files_changed >= 0 && has(result.summary) && size(result.summary) > 0 }}"
     instructions: |

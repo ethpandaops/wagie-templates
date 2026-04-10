@@ -80,9 +80,9 @@ inputs:
 tasks:
   review:
     selection:
+      capabilities: [reasoning]
       match: >-
-        'reasoning' in capabilities
-        && (!has(inputs.persona.requires_tools) || inputs.persona.requires_tools != true || 'tool-use' in capabilities)
+        (!has(inputs.persona.requires_tools) || inputs.persona.requires_tools != true || 'tool-use' in capabilities)
         && (!has(inputs.persona.provider) || inputs.persona.provider == '' || inputs.persona.provider in providers)
         && (!has(inputs.persona.model) || inputs.persona.model == '' || inputs.persona.model in models)
     run: persona-code-review

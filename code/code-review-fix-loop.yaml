@@ -134,7 +134,7 @@ tasks:
       fix:
         needs: [review]
         if: "${{ tasks.review.outputs.verdict != 'approve' }}"
-        selection: {match: "'coding' in skills"}
+        selection: {skills: [coding]}
         run: apply-review-fixes
         quality-gate: "${{ has(result.revised_code) && size(result.revised_code) > 0 }}"
         instructions: |
