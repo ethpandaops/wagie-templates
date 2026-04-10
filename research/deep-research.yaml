@@ -96,7 +96,7 @@ tasks:
           findings: findings
       accumulate:
         needs: [investigate]
-        selection: {match: "'reasoning' in capabilities"}
+        selection: {capabilities: [reasoning]}
         run: accumulate-research-findings
         quality-gate: "${{ has(result.findings) }}"
         instructions: |
@@ -240,7 +240,11 @@ tasks:
       verification_summary: verification_summary
   synthesize:
     needs: [verify]
-    selection: {match: "'writing' in skills"}
+    selection:
+      skills: [writing]
+      match: >-
+        (!has(inputs.verification_provider) || inputs.verification_provider == '' || inputs.verification_provider in providers)
+        && (!has(inputs.verification_model) || inputs.verification_model == '' || inputs.verification_model in models)
     run: synthesize-research-report
     quality-gate: "${{ has(result.summary) && size(result.summary) > 0 }}"
     instructions: |

@@ -101,7 +101,7 @@ inputs:
         required: [question, priority, reason]
 tasks:
   probe:
-    selection: {match: "'reasoning' in capabilities && 'tool-use' in capabilities"}
+    selection: {capabilities: [reasoning, tool-use]}
     run: hunt-kurtosis-ethereum-bug-round
     quality-gate: "${{ has(result.summary) && size(result.summary) > 0 && has(result.findings) && has(result.suggested_gaps) }}"
     instructions: |-

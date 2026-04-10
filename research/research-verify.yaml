@@ -64,7 +64,11 @@ inputs:
         required: [name]
 tasks:
   verify:
-    selection: {match: "'reasoning' in capabilities"}
+    selection:
+      capabilities: [reasoning]
+      match: >-
+        (!has(inputs.provider) || inputs.provider == '' || inputs.provider in providers)
+        && (!has(inputs.model) || inputs.model == '' || inputs.model in models)
     run: adversarial-verification
     quality-gate: "${{ has(result.verified_findings) && size(result.verified_findings) > 0 && has(result.issues) && has(result.open_questions) && has(result.verification_summary) && size(result.verification_summary) > 0 }}"
     instructions: |

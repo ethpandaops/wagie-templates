@@ -2,7 +2,7 @@ module github.com/ethpandaops/wagie-templates
 
 go 1.26.1
 
-require github.com/ethpandaops/wagie v0.0.47-0.20260330222608-8268efd05a96
+require github.com/ethpandaops/wagie v0.0.49
 
 require (
 	cel.dev/expr v0.25.1 // indirect
@@ -34,9 +34,10 @@ require (
 	github.com/dop251/goja v0.0.0-20260311135729-065cd970411c // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
-	github.com/ethpandaops/claude-agent-sdk-go v0.0.6 // indirect
-	github.com/ethpandaops/codex-agent-sdk-go v0.0.7 // indirect
-	github.com/ethpandaops/openrouter-agent-sdk-go v0.0.1 // indirect
+	github.com/ethpandaops/claude-agent-sdk-go v0.0.7 // indirect
+	github.com/ethpandaops/codex-agent-sdk-go v0.0.9 // indirect
+	github.com/ethpandaops/openrouter-agent-sdk-go v0.0.2 // indirect
+	github.com/ethpandaops/vllm-agent-sdk-go v0.0.1 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/glebarez/go-sqlite v1.22.0 // indirect

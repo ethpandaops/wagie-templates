@@ -35,7 +35,11 @@ inputs:
     description: "Preferred provider (e.g. claudecode, codex)"
 tasks:
   plan:
-    selection: {match: "'reasoning' in capabilities"}
+    selection:
+      capabilities: [reasoning]
+      match: >-
+        (!has(inputs.provider) || inputs.provider == '' || inputs.provider in providers)
+        && (!has(inputs.model) || inputs.model == '' || inputs.model in models)
     run: decompose-research-topic
     quality-gate: "${{ has(result.perspectives) && size(result.perspectives) > 1 && has(result.questions) && size(result.questions) > 2 }}"
     instructions: |
