@@ -1,7 +1,7 @@
 name: ethpandaops/kurtosis-ethereum-devnet-config
 version: "1.0"
 description: >-
-  Use when a workflow needs a Kurtosis ethereum-package configuration derived from an existing devnet or devnet-group profile while minimizing unnecessary participant multiplicity.
+  Internal building block for `kurtosis-ethereum-config` when `config_mode` is `devnet-profile`. Derives a minimal Kurtosis ethereum-package config from an existing devnet or devnet-group profile. Call directly only when you need the full derivation surface (notes, topology, reference) without the facade.
 tags: ["kurtosis", "ethereum", "ethpandaops", "devnet", "configuration"]
 inputs:
   devnet_name:

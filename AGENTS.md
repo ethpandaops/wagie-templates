@@ -9,8 +9,20 @@ Current families:
 - `ethereum/`: devnet and Kurtosis Ethereum workflows
 - `code/`: code-review and code-quality workflows
 - `research/`: iterative research workflows
+- `experiments/`: autonomous experiment loops (metric-driven hillclimb over any git-tracked artifact)
 
 Keep family directories shallow. Do not reintroduce a `templates/` wrapper here.
+
+## Entry Points vs Building Blocks
+
+Within a family, some templates are user-facing entry points and others are internal building blocks composed by those entry points. Current roles:
+
+- `ethereum/`: entry points are `devnet-debug`, `kurtosis-ethereum-bug-hunt`, `kurtosis-ethereum-network-lifecycle`, `kurtosis-ethereum-config`. The rest (`devnet-context`, `devnet-baseline`, `devnet-finality-assessment`, `devnet-notes`, `devnet-topology-profile`, `devnet-report`, `kurtosis-ethereum-devnet-config`, `kurtosis-ethereum-reference`, `kurtosis-enclave-*`) are building blocks, most also callable standalone.
+- `code/`: entry points are `code-review-committee`, `code-review-fix-loop`, `code-review-adversarial`, `code-verification`. `code-diff` and `code-reviewer` are building blocks.
+- `research/`: entry point is `deep-research`. `research-plan`, `research-findings`, `research-coverage-assess`, `research-verify` are building blocks, callable standalone for one-shot use.
+- `experiments/`: entry point is `experiment-loop`. The setup task inside the template handles discovery (resolving target files, setup/benchmark/correctness commands, metric name from the repo + goal) so callers only need to supply `repo_url`, `goal`, and `result_branch` in the common case. All discovered parameters can be overridden explicitly.
+
+When authoring new templates, flag the role in the description if it is not a top-level entry point.
 
 ## Boundary
 

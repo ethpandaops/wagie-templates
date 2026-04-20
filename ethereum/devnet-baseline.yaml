@@ -392,6 +392,9 @@ tasks:
                           type: number
                         distance:
                           type: number
+                      required: [name]
+                required: [head_slot, head_root]
+          required: [fork_count, forks]
           description: Full fork detection data from Dora /forks endpoint
         validator_activity:
           type: array
@@ -406,6 +409,7 @@ tasks:
                 type: number
               offline:
                 type: number
+            required: [node_name]
           description: Per-node validator online/offline counts from Dora activity endpoint
         epoch_snapshots:
           type: array
@@ -422,6 +426,7 @@ tasks:
                 type: number
               missed_blocks:
                 type: number
+            required: [epoch, participation_rate]
           description: Epoch-level participation and block production data
         node_sync_status:
           type: array
@@ -436,6 +441,7 @@ tasks:
                 type: number
               is_syncing:
                 type: boolean
+            required: [instance_name, head_slot, is_syncing]
           description: Per-node CL sync status when ethnode was queried
         has_finality_issues:
           type: boolean

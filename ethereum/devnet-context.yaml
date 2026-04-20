@@ -1,7 +1,7 @@
 name: ethpandaops/devnet-context
 version: "1.0"
 description: >-
-  Use when a workflow needs normalized Ethereum devnet context; resolves network or devnet-group identity, available observability surfaces, likely instance inventory, and an investigation timeframe.
+  Use when a workflow needs normalized Ethereum devnet context; resolves network or devnet-group identity, available observability surfaces, likely instance inventory, and an investigation timeframe. Intake stage inside `devnet-debug`; also callable standalone for context resolution alone.
 tags: ["devnet", "ethereum", "ethpandaops", "debugging", "context"]
 inputs:
   network:

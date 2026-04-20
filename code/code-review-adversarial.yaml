@@ -213,7 +213,7 @@ tasks:
     outputs:
       current_code: "${{ has(tasks.actor.outputs.revised_code) ? tasks.actor.outputs.revised_code : inputs.diff }}"
       approved: "${{ tasks.critic.outputs.approved }}"
-      findings_history: "${{ inputs.findings_history + '\n---Round---\nScore: ' + string(tasks.critic.outputs.score) + '\n' + tasks.critic.outputs.reasoning }}"
+      findings_history: '${{ inputs.findings_history + "\n---Round---\nScore: " + string(tasks.critic.outputs.score) + "\n" + tasks.critic.outputs.reasoning }}'
       dismissed_findings: "${{ inputs.dismissed_findings + (has(tasks.actor.outputs.false_positives) ? tasks.actor.outputs.false_positives : []) }}"
       round_scores: "${{ inputs.prev_round_scores + string(tasks.critic.outputs.score) + ',' }}"
       schema:
