@@ -1,0 +1,632 @@
+name: ethpandaops/experiment-loop
+version: "1.0"
+description: >-
+  Use when iteratively tuning any git-tracked artifact in a repo against a scalar metric. Caller only needs to provide `repo_url`, `goal`, and `result_branch`; the setup task clones the repo, discovers or scaffolds the missing pieces (target files, setup command, benchmark, correctness command, metric name) from the goal and repo conventions, then the loop proposes → applies → checks → measures → keeps-or-reverts greedily until a patience window of no-improvement or max iterations. Works for code performance, SQL queries, prompts, configs, ML training loops, Docker image size, or any repo that can emit a scalar from a shell command. Any of the discovered parameters can be overridden by the caller when they are known up front.
+tags: ["experiment", "optimization", "hillclimb", "benchmark", "autonomous", "autoresearch", "metric"]
+defaults:
+  retry:
+    max: 1
+    on: [error, timeout, schema-validation, quality-gate]
+    backoff:
+      delay: 10s
+      factor: 2
+      max-delay: 1m
+      jitter: true
+    timeout: 5m
+inputs:
+  repo_url:
+    type: string
+    required: true
+    description: Git URL of the repo to clone (SSH or HTTPS). Worker must have fetch and push credentials.
+  base_branch:
+    type: string
+    default: main
+    description: Branch to start from
+  result_branch:
+    type: string
+    required: true
+    description: Branch name to push the final accumulated state to (e.g. `autoresearch/run-2026-04-14`)
+  setup_command:
+    type: string
+    default: ""
+    description: Optional override for the one-time setup command run after clone (e.g. `pnpm install && pnpm build`). Empty means the setup task discovers or skips based on repo conventions.
+  target_files:
+    type: array
+    default: []
+    description: Optional override listing files the agent may modify. Empty means the setup task infers scope from the goal and repo. Keep tight when provided; exclude bench/test files that scoring depends on.
+    schema:
+      type: array
+      items:
+        type: string
+  correctness_command:
+    type: string
+    default: ""
+    description: Optional override for the correctness gate command (e.g. `pnpm test src/parser`). Empty means the setup task discovers or scaffolds tests covering the target, or disables the gate if the domain doesn't need one (e.g. Karpathy-style ML where a broken model produces bad metric naturally).
+  experiment_command:
+    type: string
+    default: ""
+    description: Optional override for the command that runs the experiment and emits the scalar metric (e.g. `pnpm bench:parser --json`, `uv run train.py`). Empty means the setup task discovers or scaffolds a benchmark.
+  metric_name:
+    type: string
+    default: ""
+    description: Optional override for the metric label the worker extracts from experiment output (e.g. `val_bpb`, `ns_per_op_parseJson`). Empty means the setup task derives one from the scaffolded/discovered benchmark.
+  metric_direction:
+    type: string
+    default: minimize
+    description: Whether lower or higher metric values are better
+    schema:
+      type: string
+      enum: [minimize, maximize]
+  goal:
+    type: string
+    required: true
+    description: Natural-language description of what to optimize and why. Passed to the proposer each round.
+  max_iterations:
+    type: number
+    default: 20
+    description: Hard cap on experiment rounds
+  patience:
+    type: number
+    default: 5
+    description: Stop after this many consecutive rounds with no accepted improvement
+  auto_cleanup:
+    type: boolean
+    default: false
+    description: Whether to prune the scratch workspace after a successful run. Default off so failed runs stay inspectable.
+tasks:
+  experiment:
+    selection:
+      sticky: true
+    inputs:
+      repo_url: ${{ inputs.repo_url }}
+      base_branch: ${{ inputs.base_branch }}
+      result_branch: ${{ inputs.result_branch }}
+      setup_command: ${{ inputs.setup_command }}
+      target_files: ${{ inputs.target_files }}
+      correctness_command: ${{ inputs.correctness_command }}
+      experiment_command: ${{ inputs.experiment_command }}
+      metric_name: ${{ inputs.metric_name }}
+      metric_direction: ${{ inputs.metric_direction }}
+      goal: ${{ inputs.goal }}
+      max_iterations: ${{ inputs.max_iterations }}
+      patience: ${{ inputs.patience }}
+      auto_cleanup: ${{ inputs.auto_cleanup }}
+    tasks:
+      setup:
+        selection: {capabilities: [reasoning, tool-use]}
+        run: discover-and-setup-experiment
+        retry:
+          max: 1
+          on: [error, timeout, schema-validation, quality-gate]
+          backoff:
+            delay: 30s
+            factor: 2
+            max-delay: 5m
+            jitter: true
+          timeout: 30m
+        quality-gate: "${{ has(result.baseline_metric) && has(result.baseline_commit) && size(result.baseline_commit) > 0 && has(result.workspace_path) && size(result.workspace_path) > 0 && has(result.effective_target_files) && size(result.effective_target_files) > 0 && has(result.effective_experiment_command) && size(result.effective_experiment_command) > 0 && has(result.effective_metric_name) && size(result.effective_metric_name) > 0 }}"
+        instructions: |-
+          Prepare a clean scratch workspace AND resolve all missing experiment parameters from the repo itself. Leadership only knows the repo URL and the goal; you have the cloned code, so you own discovery.
+
+          Step 1 — Clone and branch.
+          - Clone `repo_url` into a fresh scratch directory (e.g. under `/tmp/experiment-<run-id>/` or the worker's working directory).
+          - Check out `base_branch`. Create local branch `result_branch` from it.
+          - Capture the **absolute path** of the clone root and return it as `workspace_path`. Every downstream task in this run will `cd` into this path before running anything.
+
+          Step 2 — Resolve each parameter. For each field below, honour the caller-provided value when it is non-empty; otherwise derive it from the repo and goal.
+
+          `effective_setup_command`:
+          - If `setup_command` was provided, use it.
+          - Else detect the project's conventional setup: `pnpm install` / `npm install` (Node), `uv sync` + any `prepare.py` (Python), `cargo fetch` / `cargo build` (Rust), `go mod download` (Go), etc.
+          - If nothing is obviously needed, return `""`.
+
+          `effective_target_files`:
+          - If `target_files` was provided (non-empty), use it.
+          - Else read the repo + goal, identify the code/config/prompt/query being optimized. Prefer the narrowest scope that covers the goal. Profile-guided where possible: if the target function calls into helpers that plausibly dominate runtime, include them; if callees are obviously cold, exclude them.
+          - Must exclude any file that the benchmark or correctness command reads as scoring input — the agent can't be allowed to edit its own scorer.
+
+          `effective_experiment_command`:
+          - If `experiment_command` was provided, use it.
+          - Else detect an existing benchmark in the project's conventional framework (Go `testing.B`, `cargo bench`, `pytest-benchmark`, vitest `.bench.ts`, `make bench`, custom). If found, construct the invocation.
+          - Else scaffold one: write a minimal benchmark file targeting the goal's function/query/artifact in the project's idiomatic framework, commit it to the repo (this is scaffolding, NOT a try commit), and use its invocation. The scaffolded file must live outside `effective_target_files`.
+
+          `effective_metric_name`:
+          - If `metric_name` was provided, use it.
+          - Else name it after the scaffolded or discovered benchmark's scalar output (e.g. `ns_per_op`, `elapsed_seconds`, `size_bytes`).
+
+          `effective_correctness_command`:
+          - If `correctness_command` was provided, use it.
+          - Else detect existing tests that cover the target. If found, construct the invocation (e.g. `go test ./parser/...`, `pnpm test -- src/parser`).
+          - If no tests cover the target and the domain warrants correctness checking (most domains except ML where bad models produce bad metrics naturally), scaffold minimal tests that capture current behaviour of the target, commit them, and use their invocation.
+          - If the domain does not need a correctness gate, return `""`.
+
+          Step 3 — Execute setup.
+          - If `effective_setup_command` is non-empty, run it. Fail the task if setup fails.
+
+          Step 4 — Commit scaffolding.
+          - Any bench or test files you scaffolded in Step 2 must be committed before step 5. Use a clear commit message like `scaffold: add autoresearch bench for parseJson`.
+
+          Step 5 — Baseline measurement.
+          - Run `effective_experiment_command` once. Extract the scalar labelled `effective_metric_name`. Return it as `baseline_metric`.
+          - If extraction fails, the quality-gate will reject this setup — revise your scaffold or extraction strategy and retry.
+
+          Step 6 — Return state.
+          - `baseline_commit`: the current HEAD sha after setup + scaffolding but before any experiment try commits.
+          - `workspace_summary`: a short note describing repo state, any scaffolding, and the baseline metric.
+
+          This worker is part of a sticky session — subsequent loop tasks will reuse the same workspace. Do not delete the workspace.
+        inputs:
+          repo_url: ${{ inputs.repo_url }}
+          base_branch: ${{ inputs.base_branch }}
+          result_branch: ${{ inputs.result_branch }}
+          goal: ${{ inputs.goal }}
+          metric_direction: ${{ inputs.metric_direction }}
+          setup_command: ${{ inputs.setup_command }}
+          target_files: ${{ inputs.target_files }}
+          correctness_command: ${{ inputs.correctness_command }}
+          experiment_command: ${{ inputs.experiment_command }}
+          metric_name: ${{ inputs.metric_name }}
+        outputs:
+          baseline_metric: ${{ result.baseline_metric }}
+          baseline_commit: ${{ result.baseline_commit }}
+          workspace_path: ${{ result.workspace_path }}
+          workspace_summary: ${{ result.workspace_summary }}
+          effective_setup_command: "${{ has(result.effective_setup_command) ? result.effective_setup_command : '' }}"
+          effective_target_files: ${{ result.effective_target_files }}
+          effective_correctness_command: "${{ has(result.effective_correctness_command) ? result.effective_correctness_command : '' }}"
+          effective_experiment_command: ${{ result.effective_experiment_command }}
+          effective_metric_name: ${{ result.effective_metric_name }}
+          scaffolding_notes: "${{ has(result.scaffolding_notes) ? result.scaffolding_notes : '' }}"
+          schema:
+            baseline_metric:
+              type: number
+              description: Scalar metric measured on the baseline commit before any experiments
+            baseline_commit:
+              type: string
+              description: Git sha of the starting point (after any scaffolding, before the loop runs)
+            workspace_path:
+              type: string
+              description: Absolute path to the cloned repo root. All downstream tasks `cd` here before running anything.
+            workspace_summary:
+              type: string
+              description: Short summary of the prepared workspace
+            effective_setup_command:
+              type: string
+              description: The setup command that was ultimately used (caller override or discovered)
+            effective_target_files:
+              type: array
+              items:
+                type: string
+              description: Resolved editable scope the loop will operate on
+            effective_correctness_command:
+              type: string
+              description: Resolved correctness command; empty means gate disabled
+            effective_experiment_command:
+              type: string
+              description: Resolved experiment command producing the scalar metric
+            effective_metric_name:
+              type: string
+              description: Resolved metric label extracted from experiment output
+            scaffolding_notes:
+              type: string
+              description: Human-readable note on any bench or test files that were scaffolded
+      hunt:
+        needs: [setup]
+        loop:
+          max: "${{ inputs.max_iterations }}"
+          init:
+            best_metric: "${{ tasks.setup.outputs.baseline_metric }}"
+            best_commit: "${{ tasks.setup.outputs.baseline_commit }}"
+            no_improvement_streak: "${{ 0 }}"
+            experiment_log: "${{ '' }}"
+            accepted_count: "${{ 0 }}"
+            reverted_count: "${{ 0 }}"
+          until: "${{ loop.no_improvement_streak >= inputs.patience }}"
+          on-max-exhausted: continue
+        inputs:
+          workspace_path: ${{ tasks.setup.outputs.workspace_path }}
+          goal: ${{ inputs.goal }}
+          target_files: ${{ tasks.setup.outputs.effective_target_files }}
+          metric_name: ${{ tasks.setup.outputs.effective_metric_name }}
+          metric_direction: ${{ inputs.metric_direction }}
+          correctness_command: ${{ tasks.setup.outputs.effective_correctness_command }}
+          experiment_command: ${{ tasks.setup.outputs.effective_experiment_command }}
+          baseline_metric: ${{ tasks.setup.outputs.baseline_metric }}
+          best_metric: "${{ loop.best_metric }}"
+          best_commit: "${{ loop.best_commit }}"
+          experiment_log: "${{ loop.experiment_log }}"
+          no_improvement_streak: "${{ loop.no_improvement_streak }}"
+          accepted_count: "${{ loop.accepted_count }}"
+          reverted_count: "${{ loop.reverted_count }}"
+        tasks:
+          propose:
+            selection: {capabilities: [reasoning, tool-use]}
+            run: propose-experiment-change
+            quality-gate: "${{ has(result.description) && size(result.description) > 0 && has(result.change_plan) && size(result.change_plan) > 0 }}"
+            instructions: |-
+              Before anything else, `cd` into `workspace_path`. All repo reads in this task are relative to that directory.
+
+              Propose one change that is likely to improve `metric_name` in the direction of `metric_direction`, given the `goal`.
+
+              Scope rules:
+              - Only propose edits to files listed in `target_files`. If you believe a change outside that scope is needed, record the observation in `rationale` and propose the best in-scope alternative instead.
+              - Do not edit any benchmark, test, or correctness-verification file, even if it appears in `target_files`.
+
+              Use `experiment_log` to inform the proposal:
+              - Avoid repeating changes that were already tried and reverted (they failed — don't re-propose unless combined with a new idea).
+              - Build on kept changes (the repo HEAD reflects the accumulated accepted state).
+              - If `no_improvement_streak` is high, try a different direction — exhaust one idea's neighborhood before resetting.
+
+              Return a short single-line `description` of the change and a concrete `change_plan` describing exactly what edits the apply step should make.
+            inputs:
+              workspace_path: ${{ inputs.workspace_path }}
+              goal: ${{ inputs.goal }}
+              target_files: ${{ inputs.target_files }}
+              metric_name: ${{ inputs.metric_name }}
+              metric_direction: ${{ inputs.metric_direction }}
+              baseline_metric: ${{ inputs.baseline_metric }}
+              best_metric: ${{ inputs.best_metric }}
+              experiment_log: ${{ inputs.experiment_log }}
+              no_improvement_streak: ${{ inputs.no_improvement_streak }}
+            outputs:
+              description: ${{ result.description }}
+              change_plan: ${{ result.change_plan }}
+              rationale: "${{ has(result.rationale) ? result.rationale : '' }}"
+              schema:
+                description:
+                  type: string
+                  description: Short one-line summary, used as the try commit message
+                change_plan:
+                  type: string
+                  description: Concrete plan the apply step will execute
+                rationale:
+                  type: string
+                  description: Why this change is likely to improve the metric
+          apply:
+            needs: [propose]
+            selection: {capabilities: [tool-use]}
+            run: apply-experiment-change
+            quality-gate: "${{ has(result.commit_sha) && size(result.commit_sha) > 0 }}"
+            instructions: |-
+              Before anything else, `cd` into `workspace_path`. All edits and git commands in this task run relative to that directory.
+
+              Execute the `change_plan`. Edit only files listed in `target_files`.
+
+              After editing, stage and commit with a message shaped as `try: {description}`.
+              Return the commit sha.
+            inputs:
+              workspace_path: ${{ inputs.workspace_path }}
+              target_files: ${{ inputs.target_files }}
+              description: ${{ tasks.propose.outputs.description }}
+              change_plan: ${{ tasks.propose.outputs.change_plan }}
+            outputs:
+              commit_sha: ${{ result.commit_sha }}
+              files_touched: "${{ has(result.files_touched) ? result.files_touched : [] }}"
+              schema:
+                commit_sha:
+                  type: string
+                  description: Sha of the try commit
+                files_touched:
+                  type: array
+                  items:
+                    type: string
+                  description: Files the apply step actually modified
+          correctness:
+            needs: [apply]
+            selection: {capabilities: [tool-use]}
+            run: run-experiment-correctness-check
+            quality-gate: "${{ has(result.passed) && has(result.summary) }}"
+            instructions: |-
+              Before anything else, `cd` into `workspace_path`. Run `correctness_command` from there.
+
+              Determine whether the current commit is correct enough to score.
+
+              If `correctness_command` is empty, return `passed: true` immediately with a summary noting the gate was skipped.
+              Otherwise, run `correctness_command` and set `passed` based on its exit code. Summarize failures concisely; don't dump the full log.
+            inputs:
+              workspace_path: ${{ inputs.workspace_path }}
+              correctness_command: ${{ inputs.correctness_command }}
+            outputs:
+              passed: ${{ result.passed }}
+              summary: ${{ result.summary }}
+              schema:
+                passed:
+                  type: boolean
+                  description: True if correctness passed or the gate was skipped
+                summary:
+                  type: string
+                  description: Short note on what happened
+          execute:
+            if: "${{ tasks.correctness.outputs.passed }}"
+            needs: [apply, correctness]
+            selection: {capabilities: [tool-use]}
+            run: run-experiment-command
+            quality-gate: "${{ has(result.metric) }}"
+            instructions: |-
+              Before anything else, `cd` into `workspace_path`. Run `experiment_command` from there.
+
+              Extract the scalar value labelled `metric_name` from the command's output.
+
+              Parsing strategy:
+              - If the output includes a `name=value` or `name: value` line, use that.
+              - If the output is JSON, parse it and look up the key.
+              - If a results file path is emitted, read it.
+              - If extraction is ambiguous, prefer the last occurrence and include a note in `stdout_tail`.
+
+              Return `metric` as a number. Quality-gate will reject non-numeric output and trigger a retry.
+            inputs:
+              workspace_path: ${{ inputs.workspace_path }}
+              experiment_command: ${{ inputs.experiment_command }}
+              metric_name: ${{ inputs.metric_name }}
+            outputs:
+              metric: ${{ result.metric }}
+              duration_seconds: "${{ has(result.duration_seconds) ? result.duration_seconds : 0 }}"
+              stdout_tail: "${{ has(result.stdout_tail) ? result.stdout_tail : '' }}"
+              schema:
+                metric:
+                  type: number
+                  description: Extracted scalar value for metric_name
+                duration_seconds:
+                  type: number
+                  description: Wall-clock seconds the experiment_command took
+                stdout_tail:
+                  type: string
+                  description: Last few lines of the command output for diagnostic context
+          decide:
+            needs: [correctness, execute]
+            uses: wagie/decide@1
+            inputs:
+              question: "Should this experiment change be kept or reverted?"
+              context: |-
+                Goal: ${{ inputs.goal }}
+                Metric: ${{ inputs.metric_name }} (direction: ${{ inputs.metric_direction }})
+                Baseline: ${{ inputs.baseline_metric }}
+                Best so far: ${{ inputs.best_metric }}
+                Proposed change: ${{ tasks.propose.outputs.description }}
+                Correctness passed: ${{ tasks.correctness.outputs.passed }}
+                Correctness summary: ${{ tasks.correctness.outputs.summary }}
+                New metric (if measured): ${{ tasks.correctness.outputs.passed ? tasks.execute.outputs.metric : 'n/a - correctness failed' }}
+
+                Acceptance rule:
+                - If correctness failed, revert.
+                - Else if metric_direction is 'minimize' and new_metric < best_metric, keep.
+                - Else if metric_direction is 'maximize' and new_metric > best_metric, keep.
+                - Else revert (including ties - prefer the earlier commit).
+              options: ["keep", "revert"]
+            outputs:
+              decision: decision
+              decision_reasoning: reasoning
+          apply_and_log:
+            needs: [decide]
+            selection: {capabilities: [tool-use, reasoning]}
+            run: apply-experiment-decision-and-log
+            quality-gate: "${{ has(result.applied) && has(result.tsv_row) && size(result.tsv_row) > 0 }}"
+            instructions: |-
+              Before anything else, `cd` into `workspace_path`. Any git command in this task runs relative to that directory.
+
+              Apply the decision, then produce a TSV log row.
+
+              Apply:
+              - If `decision` is `revert`, run `git reset --hard HEAD~1` to discard the try commit.
+              - If `decision` is `keep`, leave HEAD alone.
+              - Return `applied` as the decision string.
+
+              Log:
+              - Produce a single TSV line ending with `\n`.
+              - Columns (tab-separated): timestamp_iso, decision, correctness_passed, metric_value_or_na, best_metric_so_far, description.
+              - Example: `2026-04-14T10:22:01Z\tkeep\ttrue\t2180\t2450\tReplace charCodeAt loop with Uint8Array scan`
+            inputs:
+              workspace_path: ${{ inputs.workspace_path }}
+              decision: ${{ tasks.decide.outputs.decision }}
+              description: ${{ tasks.propose.outputs.description }}
+              correctness_passed: ${{ tasks.correctness.outputs.passed }}
+              metric: "${{ tasks.correctness.outputs.passed ? tasks.execute.outputs.metric : 0 }}"
+              metric_measured: ${{ tasks.correctness.outputs.passed }}
+              best_metric: ${{ inputs.best_metric }}
+            outputs:
+              applied: ${{ result.applied }}
+              tsv_row: ${{ result.tsv_row }}
+              schema:
+                applied:
+                  type: string
+                  description: Decision that was applied (keep or revert)
+                tsv_row:
+                  type: string
+                  description: One TSV line summarising this iteration (trailing newline included)
+        outputs:
+          best_metric: >-
+            ${{ tasks.decide.outputs.decision == 'keep' ? tasks.execute.outputs.metric : inputs.best_metric }}
+          best_commit: >-
+            ${{ tasks.decide.outputs.decision == 'keep' ? tasks.apply.outputs.commit_sha : inputs.best_commit }}
+          no_improvement_streak: >-
+            ${{ tasks.decide.outputs.decision == 'keep' ? 0 : inputs.no_improvement_streak + 1 }}
+          experiment_log: "${{ inputs.experiment_log + tasks.apply_and_log.outputs.tsv_row }}"
+          accepted_count: >-
+            ${{ tasks.decide.outputs.decision == 'keep' ? inputs.accepted_count + 1 : inputs.accepted_count }}
+          reverted_count: >-
+            ${{ tasks.decide.outputs.decision == 'revert' ? inputs.reverted_count + 1 : inputs.reverted_count }}
+          schema:
+            best_metric:
+              type: number
+              description: Best metric seen so far after this iteration
+            best_commit:
+              type: string
+              description: Commit sha that produced best_metric
+            no_improvement_streak:
+              type: number
+              description: Consecutive rounds without an accepted improvement
+            experiment_log:
+              type: string
+              description: Accumulated TSV of all iterations
+            accepted_count:
+              type: number
+              description: Number of rounds whose change was kept
+            reverted_count:
+              type: number
+              description: Number of rounds whose change was reverted
+      finalize:
+        needs: [hunt]
+        selection: {capabilities: [tool-use, reasoning]}
+        run: finalize-experiment-run
+        retry:
+          max: 1
+          on: [error, timeout, schema-validation, quality-gate]
+          backoff:
+            delay: 10s
+            factor: 2
+            max-delay: 1m
+            jitter: true
+          timeout: 10m
+        quality-gate: "${{ has(result.summary) && size(result.summary) > 0 && has(result.result_branch_url) && size(result.result_branch_url) > 0 && has(result.experiment_log_artifact) }}"
+        instructions: |-
+          Before anything else, `cd` into `workspace_path`. The git push and any commands in this task run relative to that directory.
+
+          Finalize the experiment run.
+
+          Steps:
+          1. Push HEAD to `result_branch` on `origin`. Force-push is acceptable if the branch already exists from a prior run. Record the resulting branch URL.
+          2. Write the accumulated `experiment_log` to a TSV artifact, preserving the iteration order.
+          3. Render a concise markdown `summary` artifact with:
+             - Title and goal
+             - Resolved parameters: effective_target_files, effective_experiment_command, effective_metric_name, effective_correctness_command. Include `scaffolding_notes` if any bench or test files were scaffolded during setup.
+             - Baseline vs best metric, direction, computed improvement
+             - Rounds run, accepted, reverted
+             - Convergence signal (hit patience window vs hit max iterations)
+             - A short table excerpt of the most impactful iterations (largest metric deltas)
+             - The best commit sha and result branch URL
+        inputs:
+          workspace_path: ${{ tasks.setup.outputs.workspace_path }}
+          repo_url: ${{ inputs.repo_url }}
+          result_branch: ${{ inputs.result_branch }}
+          goal: ${{ inputs.goal }}
+          metric_name: ${{ tasks.setup.outputs.effective_metric_name }}
+          metric_direction: ${{ inputs.metric_direction }}
+          effective_target_files: ${{ tasks.setup.outputs.effective_target_files }}
+          effective_experiment_command: ${{ tasks.setup.outputs.effective_experiment_command }}
+          effective_correctness_command: ${{ tasks.setup.outputs.effective_correctness_command }}
+          scaffolding_notes: ${{ tasks.setup.outputs.scaffolding_notes }}
+          baseline_metric: ${{ tasks.setup.outputs.baseline_metric }}
+          best_metric: ${{ tasks.hunt.outputs.best_metric }}
+          best_commit: ${{ tasks.hunt.outputs.best_commit }}
+          accepted_count: ${{ tasks.hunt.outputs.accepted_count }}
+          reverted_count: ${{ tasks.hunt.outputs.reverted_count }}
+          experiment_log: ${{ tasks.hunt.outputs.experiment_log }}
+          converged: ${{ tasks.hunt.loop.converged }}
+        outputs:
+          summary: ${{ result.summary }}
+          result_branch_url: ${{ result.result_branch_url }}
+          experiment_log_artifact: ${{ result.experiment_log_artifact }}
+          schema:
+            summary:
+              kind: artifact
+              content-type: text/markdown
+              description: Final markdown report of the run
+              required: true
+            result_branch_url:
+              type: string
+              description: URL of the pushed result branch
+            experiment_log_artifact:
+              kind: artifact
+              content-type: text/tab-separated-values
+              description: Iteration-by-iteration TSV log
+              required: true
+      cleanup:
+        if: "${{ inputs.auto_cleanup == true }}"
+        needs: [finalize]
+        selection: {capabilities: [tool-use]}
+        run: cleanup-experiment-workspace
+        quality-gate: "${{ has(result.removed) }}"
+        instructions: |-
+          Remove the scratch workspace at `workspace_path`. Do not touch anything outside it. Refuse to proceed if `workspace_path` is empty, root (`/`), or obviously not under a scratch prefix like `/tmp/`.
+        inputs:
+          workspace_path: ${{ tasks.setup.outputs.workspace_path }}
+        outputs:
+          removed: ${{ result.removed }}
+          schema:
+            removed:
+              type: boolean
+              description: Whether the scratch workspace was successfully removed
+    outputs:
+      baseline_metric: ${{ tasks.setup.outputs.baseline_metric }}
+      best_metric: ${{ tasks.hunt.outputs.best_metric }}
+      best_commit: ${{ tasks.hunt.outputs.best_commit }}
+      rounds_completed: "${{ tasks.hunt.outputs.accepted_count + tasks.hunt.outputs.reverted_count }}"
+      accepted_count: ${{ tasks.hunt.outputs.accepted_count }}
+      reverted_count: ${{ tasks.hunt.outputs.reverted_count }}
+      result_branch_url: ${{ tasks.finalize.outputs.result_branch_url }}
+      experiment_log: ${{ tasks.finalize.outputs.experiment_log_artifact }}
+      summary: ${{ tasks.finalize.outputs.summary }}
+      converged: ${{ tasks.hunt.loop.converged }}
+      effective_target_files: ${{ tasks.setup.outputs.effective_target_files }}
+      effective_experiment_command: ${{ tasks.setup.outputs.effective_experiment_command }}
+      effective_metric_name: ${{ tasks.setup.outputs.effective_metric_name }}
+      effective_correctness_command: ${{ tasks.setup.outputs.effective_correctness_command }}
+      effective_setup_command: ${{ tasks.setup.outputs.effective_setup_command }}
+      workspace_path: ${{ tasks.setup.outputs.workspace_path }}
+      scaffolding_notes: ${{ tasks.setup.outputs.scaffolding_notes }}
+      schema:
+        baseline_metric:
+          type: number
+        best_metric:
+          type: number
+        best_commit:
+          type: string
+        rounds_completed:
+          type: number
+        accepted_count:
+          type: number
+        reverted_count:
+          type: number
+        result_branch_url:
+          type: string
+        experiment_log:
+          kind: artifact
+          content-type: text/tab-separated-values
+        summary:
+          kind: artifact
+          content-type: text/markdown
+        converged:
+          type: boolean
+        effective_target_files:
+          type: array
+          items:
+            type: string
+        effective_experiment_command:
+          type: string
+        effective_metric_name:
+          type: string
+        effective_correctness_command:
+          type: string
+        effective_setup_command:
+          type: string
+        workspace_path:
+          type: string
+        scaffolding_notes:
+          type: string
+outputs:
+  baseline_metric: ${{ tasks.experiment.outputs.baseline_metric }}
+  best_metric: ${{ tasks.experiment.outputs.best_metric }}
+  best_commit: ${{ tasks.experiment.outputs.best_commit }}
+  improvement_pct: >-
+    ${{ inputs.metric_direction == 'minimize'
+          ? (tasks.experiment.outputs.baseline_metric - tasks.experiment.outputs.best_metric) / tasks.experiment.outputs.baseline_metric * double(100)
+          : (tasks.experiment.outputs.best_metric - tasks.experiment.outputs.baseline_metric) / tasks.experiment.outputs.baseline_metric * double(100) }}
+  improved: >-
+    ${{ inputs.metric_direction == 'minimize'
+          ? tasks.experiment.outputs.best_metric < tasks.experiment.outputs.baseline_metric
+          : tasks.experiment.outputs.best_metric > tasks.experiment.outputs.baseline_metric }}
+  rounds_completed: ${{ tasks.experiment.outputs.rounds_completed }}
+  accepted_count: ${{ tasks.experiment.outputs.accepted_count }}
+  reverted_count: ${{ tasks.experiment.outputs.reverted_count }}
+  result_branch: ${{ inputs.result_branch }}
+  result_branch_url: ${{ tasks.experiment.outputs.result_branch_url }}
+  experiment_log: ${{ tasks.experiment.outputs.experiment_log }}
+  summary: ${{ tasks.experiment.outputs.summary }}
+  converged: ${{ tasks.experiment.outputs.converged }}
+  effective_target_files: ${{ tasks.experiment.outputs.effective_target_files }}
+  effective_experiment_command: ${{ tasks.experiment.outputs.effective_experiment_command }}
+  effective_metric_name: ${{ tasks.experiment.outputs.effective_metric_name }}
+  effective_correctness_command: ${{ tasks.experiment.outputs.effective_correctness_command }}
+  effective_setup_command: ${{ tasks.experiment.outputs.effective_setup_command }}
+  workspace_path: ${{ tasks.experiment.outputs.workspace_path }}
+  scaffolding_notes: ${{ tasks.experiment.outputs.scaffolding_notes }}

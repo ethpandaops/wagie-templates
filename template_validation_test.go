@@ -25,6 +25,7 @@ func TestTemplatesValidateAgainstCombinedLibrary(t *testing.T) {
 		{path: "ethereum", source: "wagie-templates"},
 		{path: "code", source: "wagie-templates"},
 		{path: "research", source: "wagie-templates"},
+		{path: "experiments", source: "wagie-templates"},
 	}
 
 	files := make([]wagie.TemplateFile, 0, len(coreFiles)+64)

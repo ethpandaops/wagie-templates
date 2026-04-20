@@ -2,7 +2,7 @@ name: ethpandaops/kurtosis-ethereum-bug-hunt
 version: "1.1"
 description: >-
   Use when a workflow needs to launch or inspect a Kurtosis Ethereum network and iteratively hunt for candidate bugs or anomalies. Carries forward typed findings and remaining gaps across rounds until coverage is sufficient or additional probing has diminishing value.
-tags: ["kurtosis", "ethereum", "ethpandaops", "bug-hunt", "debugging", "iterative", "type:domain", "flow:loop", "cap:investigation"]
+tags: ["kurtosis", "ethereum", "ethpandaops", "bug-hunt", "debugging", "investigation", "iterative"]
 inputs:
   goal:
     type: string
@@ -150,22 +150,115 @@ tasks:
       previous_log: "${{ loop.iteration_log }}"
     tasks:
       probe_round:
-        uses: ethpandaops/kurtosis-ethereum-bug-round@1
+        selection: {capabilities: [reasoning, tool-use]}
+        run: hunt-kurtosis-ethereum-bug-round
+        retry:
+          max: 1
+          on: [error, timeout, schema-validation, quality-gate]
+          backoff:
+            delay: 10s
+            factor: 2
+            max-delay: 30s
+            jitter: true
+          timeout: 5m
+        quality-gate: "${{ has(result.summary) && size(result.summary) > 0 && has(result.findings) && has(result.suggested_gaps) }}"
+        instructions: |-
+          Run one focused Kurtosis Ethereum bug-hunt round.
+
+          Use the `kurtosis` CLI as the primary tool surface for enclave operations.
+          Use the `panda` CLI and MCP tools for network analysis when available.
+
+          Strategy:
+          - If `previous_findings` is empty, start broad: establish a baseline
+            for service health, consensus progress, finality, fork agreement,
+            sync state, and obvious log anomalies.
+          - If `gaps` are present, prioritize the highest-value unresolved
+            questions first and use targeted checks to confirm, refute, or
+            sharpen prior hypotheses.
+          - Do not repeat already-established findings unless you are materially
+            upgrading them with stronger evidence or refuting them.
+
+          Evidence rules:
+          - Every finding must cite concrete evidence from this round.
+          - Reference specific commands, endpoints, log excerpts, or observed
+            service states rather than generic statements.
+          - Prefer a small number of substantive findings over a long weak list.
+
+          For each finding:
+          - Set severity as critical, high, medium, or low.
+          - Set status as suspected, confirmed, or refuted.
+          - State the affected scope precisely.
+          - Include a confidence score from 0-100.
+          - Set `warrants_devnet_debug` when the finding deserves deeper
+            follow-up via a devnet-debug workflow.
+
+          Return only new or materially upgraded findings from this round.
+          Also return `suggested_gaps`: the next checks that would most improve
+          confidence or close unresolved ambiguity.
         inputs:
           enclave_name: ${{ inputs.enclave_name }}
           goal: ${{ inputs.goal }}
           hunt_focus: ${{ inputs.hunt_focus }}
-          config_summary: ${{ inputs.config_summary }}
-          launch_summary: ${{ inputs.launch_summary }}
-          status_summary: ${{ inputs.status_summary }}
+          config_summary: "${{ has(inputs.config_summary) ? inputs.config_summary : '' }}"
+          launch_summary: "${{ has(inputs.launch_summary) ? inputs.launch_summary : '' }}"
+          status_summary: "${{ has(inputs.status_summary) ? inputs.status_summary : '' }}"
           service_names: ${{ inputs.service_names }}
           public_endpoints: ${{ inputs.public_endpoints }}
           previous_findings: ${{ inputs.previous_findings }}
           gaps: ${{ inputs.previous_gaps }}
         outputs:
-          findings: findings
-          summary: summary
-          suggested_gaps: suggested_gaps
+          findings: "${{ has(result.findings) ? result.findings : [] }}"
+          summary: "${{ result.summary }}"
+          suggested_gaps: "${{ has(result.suggested_gaps) ? result.suggested_gaps : [] }}"
+          schema:
+            findings:
+              type: array
+              items:
+                type: object
+                properties:
+                  title:
+                    type: string
+                  severity:
+                    type: string
+                    enum: [critical, high, medium, low]
+                  summary:
+                    type: string
+                  affected_scope:
+                    type: string
+                  category:
+                    type: string
+                  confidence:
+                    type: number
+                  status:
+                    type: string
+                    enum: [suspected, confirmed, refuted]
+                  evidence:
+                    type: array
+                    items:
+                      type: string
+                  warrants_devnet_debug:
+                    type: boolean
+                  next_check:
+                    type: string
+                required: [title, severity, summary, affected_scope, status, evidence]
+              description: New or materially upgraded candidate bugs from this round
+            summary:
+              type: string
+              description: Concise summary of this probe round
+            suggested_gaps:
+              type: array
+              items:
+                type: object
+                properties:
+                  question:
+                    type: string
+                  priority:
+                    type: string
+                    enum: [high, medium, low]
+                  reason:
+                    type: string
+                required: [question, priority, reason]
+              description: Targeted next checks suggested by this round
       accumulate_findings:
         needs: [probe_round]
         selection: {capabilities: [reasoning]}
@@ -224,7 +317,45 @@ tasks:
               description: Accumulated Kurtosis Ethereum bug-hunt findings
       assess_progress:
         needs: [probe_round, accumulate_findings]
-        uses: ethpandaops/kurtosis-ethereum-bug-assess@1
+        selection: {capabilities: [reasoning]}
+        run: assess-kurtosis-ethereum-bug-hunt
+        retry:
+          max: 1
+          on: [error, timeout, schema-validation, quality-gate]
+          backoff:
+            delay: 5s
+            factor: 2
+            max-delay: 20s
+            jitter: true
+          timeout: 2m
+        quality-gate: "${{ has(result.completeness) && has(result.information_gain) && has(result.gaps) && has(result.summary) && size(result.summary) > 0 }}"
+        instructions: |
+          Assess whether a Kurtosis Ethereum bug hunt should continue.
+
+          Evaluate the accumulated findings against the hunt objective and focus.
+
+          Completeness:
+          - Mark `sufficient` when the hunt has produced enough actionable signal
+            for follow-up, or when the network appears healthy and no meaningful
+            high-priority gaps remain.
+          - Mark `insufficient` when important high-priority uncertainties remain.
+
+          Information gain:
+          - `high` when the latest round materially improved understanding.
+          - `moderate` when it sharpened confidence but did not change the picture
+            dramatically.
+          - `diminishing` when it mostly repeated known information or left the
+            same unresolved gaps in place.
+
+          Gap rules:
+          - Merge `prior_gaps` and `suggested_gaps` into a concise deduplicated set.
+          - Keep only the highest-value remaining gaps.
+          - Prefer gaps that would confirm or refute the most severe or ambiguous
+            findings.
+          - Return at most 4 gaps.
+
+          Be direct. The point of this task is to decide whether another round is
+          worth the cost.
         inputs:
           goal: ${{ inputs.goal }}
           hunt_focus: ${{ inputs.hunt_focus }}
@@ -232,12 +363,38 @@ tasks:
           prior_gaps: ${{ inputs.previous_gaps }}
           suggested_gaps: ${{ tasks.probe_round.outputs.suggested_gaps }}
           previous_gap_count: ${{ inputs.previous_gap_count }}
-          latest_round_summary: ${{ tasks.probe_round.outputs.summary }}
+          latest_round_summary: "${{ has(tasks.probe_round.outputs.summary) ? tasks.probe_round.outputs.summary : '' }}"
         outputs:
-          completeness: completeness
-          information_gain: information_gain
-          gaps: gaps
-          summary: summary
+          completeness: "${{ result.completeness }}"
+          information_gain: "${{ result.information_gain }}"
+          gaps: "${{ result.gaps }}"
+          summary: "${{ result.summary }}"
+          schema:
+            completeness:
+              type: string
+              enum: [insufficient, sufficient]
+              description: Whether another probe round is materially necessary
+            information_gain:
+              type: string
+              enum: [high, moderate, diminishing]
+              description: Whether another round is likely to add substantial new information
+            gaps:
+              type: array
+              items:
+                type: object
+                properties:
+                  question:
+                    type: string
+                  priority:
+                    type: string
+                    enum: [high, medium, low]
+                  reason:
+                    type: string
+                required: [question, priority, reason]
+              description: Highest-value remaining gaps for another probe round
+            summary:
+              type: string
+              description: Concise stop-or-continue assessment
       log_iteration:
         needs: [probe_round, accumulate_findings, assess_progress]
         run: log-kurtosis-ethereum-bug-iteration
@@ -270,7 +427,7 @@ tasks:
       completeness: "${{ tasks.assess_progress.outputs.completeness }}"
       information_gain: "${{ tasks.assess_progress.outputs.information_gain }}"
       summary: "${{ tasks.assess_progress.outputs.summary }}"
-      iteration_log: "${{ inputs.previous_log + '\n' + tasks.log_iteration.outputs.iteration_summary }}"
+      iteration_log: '${{ inputs.previous_log + "\n" + tasks.log_iteration.outputs.iteration_summary }}'
       schema:
         findings:
           type: array

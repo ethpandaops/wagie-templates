@@ -57,12 +57,7 @@ Before writing a template:
 2. Check whether the workflow really belongs in this repo rather than Wagie core.
 3. Prefer updating a nearby template or reusing a building block over creating an overlapping workflow.
 
-Use these categories consistently:
-
-- `type:atomic`: one focused operation
-- `type:building-block`: reusable sub-workflow
-- `type:pattern`: orchestration shape such as loop, matrix, routing, or verification
-- `type:domain`: end-to-end workflow for a business or operational use case
+Signal the template's role through naming, description, and composition rather than taxonomy tags. Entry-point templates should have clear descriptions; building-block templates should say so in the description ("Usually called via …").
 
 ## Compose First
 
@@ -104,21 +99,19 @@ Weak:
 
 ### Tags
 
-Use a controlled, faceted set of tags. Prefer accuracy over volume.
+Tags are retrieval search terms, not taxonomy labels. Use the bare keywords a user would type when looking for a template.
 
-Always cover:
+Prefer:
 
-- one `type:*` tag
-- any real `flow:*` tags the template itself owns
-- one or more `cap:*` tags when capability is clear
-
-Add family or integration tags only when they help retrieval or classification.
+- short nouns or noun phrases tied to the template's purpose (`bug-hunt`, `evaluation`, `coverage`)
+- family or integration terms when they narrow retrieval (`kurtosis`, `ethereum`, `ethpandaops`, `devnet`)
+- accuracy over volume
 
 Do not:
 
+- use `type:*`, `flow:*`, or `cap:*` prefixes
 - pile on synonyms
-- invent new tag families without a clear library-level reason
-- add `flow:session` unless the template itself owns the session boundary
+- invent pseudo-taxonomies that the search path doesn't know how to rank
 
 ## Design The Contract Before The Tasks
 

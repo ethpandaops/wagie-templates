@@ -247,7 +247,7 @@ tasks:
       findings_count: "${{ tasks.review.outputs.findings.size() }}"
       prev_findings_count: "${{ inputs.prev_findings_count }}"
       verification_passed: "${{ has(tasks.verify.outputs.passed) ? tasks.verify.outputs.passed : true }}"
-      iteration_log: "${{ inputs.prev_log + '\n' + tasks.log_iteration.outputs.iteration_summary }}"
+      iteration_log: '${{ inputs.prev_log + "\n" + tasks.log_iteration.outputs.iteration_summary }}'
       dismissed_findings: "${{ inputs.dismissed_findings + (has(tasks.fix.outputs.false_positives) ? tasks.fix.outputs.false_positives : []) }}"
       false_positive_count: "${{ inputs.dismissed_findings.size() + (has(tasks.fix.outputs.false_positives) ? tasks.fix.outputs.false_positives.size() : 0) }}"
       schema:

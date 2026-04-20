@@ -208,6 +208,7 @@ tasks:
                 type: number
               justified_root:
                 type: string
+            required: [instance_name, finalized_epoch, justified_epoch]
           description: Per-node finality checkpoint data showing agreement or divergence
         participation_by_epoch:
           type: array
@@ -224,6 +225,7 @@ tasks:
                 type: number
               missed_blocks:
                 type: number
+            required: [epoch, participation_rate]
           description: Epoch-by-epoch participation and finality status
   classify_status:
     needs: [observe]
