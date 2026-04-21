@@ -160,7 +160,7 @@ tasks:
             factor: 2
             max-delay: 30s
             jitter: true
-          timeout: 5m
+          timeout: 1h
         quality-gate: "${{ has(result.summary) && size(result.summary) > 0 && has(result.findings) && has(result.suggested_gaps) }}"
         instructions: |-
           Run one focused Kurtosis Ethereum bug-hunt round.
@@ -327,7 +327,7 @@ tasks:
             factor: 2
             max-delay: 20s
             jitter: true
-          timeout: 2m
+          timeout: 1h
         quality-gate: "${{ has(result.completeness) && has(result.information_gain) && has(result.gaps) && has(result.summary) && size(result.summary) > 0 }}"
         instructions: |
           Assess whether a Kurtosis Ethereum bug hunt should continue.

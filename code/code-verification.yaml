@@ -14,7 +14,7 @@ defaults:
       factor: 2
       max-delay: 20s
       jitter: true
-    timeout: 10m
+    timeout: 1h
 inputs:
   repo:
     type: string
@@ -62,7 +62,7 @@ tasks:
   verify:
     selection: {capabilities: [tool-use]}
     run: verify-code-changes
-    timeout: 10m
+    timeout: 1h
     quality-gate: "${{ has(result.passed) && has(result.checks) && size(result.checks) > 0 && has(result.summary) && size(result.summary) > 0 }}"
     instructions: |
       You are a verification agent. Your job is to clone a repository, check
