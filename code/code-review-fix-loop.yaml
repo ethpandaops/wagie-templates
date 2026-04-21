@@ -9,8 +9,8 @@ description: >-
 tags: ["code-review", "fix-loop", "iterative", "convergence", "verification"]
 defaults:
   retry:
-    max: 1
-    on: [error, timeout, schema-validation, quality-gate]
+    max: 3
+    on: [error, timeout]
     backoff:
       delay: 5s
       factor: 2
@@ -52,6 +52,17 @@ inputs:
             type: boolean
             description: "Whether this persona needs tool-use capability (e.g. web search, doc lookup)"
         required: [role, focus]
+  providers:
+    type: array
+    description: >-
+      Optional provider axis. When non-empty, each persona fans out across these
+      providers every iteration (e.g. ['claudecode', 'codex']). Personas that
+      pin their own provider skip the fan-out. When omitted, the committee's
+      own default applies.
+    schema:
+      type: array
+      items:
+        type: string
   repo:
     type: string
     description: "Repository to clone for verification (owner/name or full URL). When provided, enables test/lint/typecheck verification after each fix."
@@ -104,11 +115,12 @@ tasks:
       on-max-exhausted: continue
     inputs:
       diff: "${{ loop.current_code }}"
-      repo: "${{ has(inputs.repo) ? inputs.repo : '' }}"
-      ref: "${{ has(inputs.ref) ? inputs.ref : '' }}"
-      context: "${{ has(inputs.context) ? inputs.context : '' }}"
-      personas: "${{ has(inputs.personas) ? inputs.personas : [] }}"
-      checks: "${{ has(inputs.checks) ? inputs.checks : [] }}"
+      repo: "${{ inputs.?repo }}"
+      ref: "${{ inputs.?ref }}"
+      context: "${{ inputs.?context }}"
+      personas: "${{ inputs.?personas }}"
+      providers: "${{ inputs.?providers }}"
+      checks: "${{ inputs.?checks }}"
       threshold: "${{ inputs.threshold }}"
       prev_findings_count: "${{ loop.findings_count }}"
       prev_verification_passed: "${{ loop.verification_passed }}"
@@ -120,10 +132,11 @@ tasks:
         uses: ethpandaops/code-review-committee@1
         inputs:
           diff: "${{ inputs.diff }}"
-          personas: "${{ size(inputs.personas) > 0 ? inputs.personas : [] }}"
-          repo: "${{ inputs.repo }}"
-          ref: "${{ inputs.ref }}"
-          context: "${{ inputs.context }}"
+          personas: "${{ inputs.?personas }}"
+          providers: "${{ inputs.?providers }}"
+          repo: "${{ inputs.?repo }}"
+          ref: "${{ inputs.?ref }}"
+          context: "${{ inputs.?context }}"
           threshold: "${{ inputs.threshold }}"
           dismissed_findings: "${{ inputs.dismissed_findings }}"
         outputs:
@@ -166,7 +179,7 @@ tasks:
         inputs:
           diff: "${{ inputs.diff }}"
           findings: "${{ tasks.review.outputs.findings }}"
-          context: "${{ inputs.context }}"
+          context: "${{ has(inputs.context) ? inputs.context : '' }}"
           dismissed_findings: "${{ inputs.dismissed_findings }}"
           prev_verification_passed: "${{ inputs.prev_verification_passed }}"
         outputs:
@@ -206,14 +219,14 @@ tasks:
               description: Findings the developer believes are incorrect or unfixable
       verify:
         needs: [fix]
-        if: "${{ inputs.repo != '' && has(tasks.fix.outputs.revised_code) }}"
+        if: "${{ has(inputs.repo) && inputs.repo != '' && has(tasks.fix.outputs.revised_code) }}"
         uses: ethpandaops/code-verification@1
         inputs:
-          repo: "${{ inputs.repo }}"
-          source_ref: "${{ inputs.ref }}"
+          repo: "${{ inputs.?repo }}"
+          source_ref: "${{ inputs.?ref }}"
           patch: "${{ tasks.fix.outputs.revised_code }}"
-          checks: "${{ inputs.checks }}"
-          context: "${{ inputs.context }}"
+          checks: "${{ inputs.?checks }}"
+          context: "${{ inputs.?context }}"
         outputs:
           passed: passed
           checks: checks

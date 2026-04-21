@@ -2,13 +2,15 @@ name: ethpandaops/code-review-committee
 version: "1.0"
 description: >-
   Use when code needs multi-perspective review; fans out reviewer personas in
-  parallel, then a judge deduplicates, resolves conflicts, and produces a
-  unified verdict with confidence scores.
+  parallel — optionally crossing each persona with multiple providers — then a
+  per-persona judge converges provider reviews and a top-level judge
+  deduplicates, resolves conflicts, and produces a unified verdict with
+  confidence scores.
 tags: ["code-review", "committee", "multi-agent", "review-panel"]
 defaults:
   retry:
-    max: 1
-    on: [error, timeout, schema-validation, quality-gate]
+    max: 3
+    on: [error, timeout]
     backoff:
       delay: 5s
       factor: 2
@@ -64,14 +66,28 @@ inputs:
             description: "Default severity for findings from this persona"
           model:
             type: string
-            description: "Preferred model for this reviewer (e.g. claude-opus-4-6, gpt-5.3)"
+            description: "Preferred model for this reviewer (e.g. claude-opus-4-6, gpt-5.3). Pinning a model opts this persona out of the provider fan-out."
           provider:
             type: string
-            description: "Preferred provider for this reviewer (e.g. claudecode, codex)"
+            description: "Preferred provider for this reviewer (e.g. claudecode, codex). Pinning a provider opts this persona out of the provider fan-out."
           requires_tools:
             type: boolean
             description: "Whether this persona needs tool-use capability (e.g. web search, doc lookup)"
         required: [role, focus]
+  providers:
+    type: array
+    default: []
+    description: >-
+      Optional provider axis. When non-empty, each persona fans out across these
+      providers (e.g. ['claudecode', 'codex']) and a per-persona judge converges
+      the reviews before the top-level judge. Personas that pin their own
+      provider skip the fan-out and run once with their pinned choice. When
+      empty, each persona runs once with its own declared provider (or any
+      available worker).
+    schema:
+      type: array
+      items:
+        type: string
   repo:
     type: string
     description: "Repository identifier (e.g. owner/name) for context"
@@ -104,35 +120,191 @@ tasks:
   review_panel:
     strategy:
       matrix:
-        index: "${{ range(inputs.personas.size()) }}"
+        persona_idx: "${{ range(inputs.personas.size()) }}"
       fail-fast: false
     inputs:
       diff: "${{ inputs.diff }}"
-      persona: "${{ inputs.personas[matrix.index] }}"
+      persona: "${{ inputs.personas[matrix.persona_idx] }}"
+      providers: "${{ inputs.providers }}"
       threshold: "${{ inputs.threshold }}"
-      repo: "${{ has(inputs.repo) ? inputs.repo : '' }}"
-      ref: "${{ has(inputs.ref) ? inputs.ref : '' }}"
-      context: "${{ has(inputs.context) ? inputs.context : '' }}"
-      dismissed_findings: "${{ has(inputs.dismissed_findings) ? inputs.dismissed_findings : [] }}"
+      repo: "${{ inputs.?repo }}"
+      ref: "${{ inputs.?ref }}"
+      context: "${{ inputs.?context }}"
+      dismissed_findings: "${{ inputs.?dismissed_findings }}"
     tasks:
-      single_review:
-        uses: ethpandaops/code-reviewer@1
+      provider_fanout:
+        strategy:
+          matrix:
+            provider_idx: "${{ range(size(inputs.providers) > 0 && (!has(inputs.persona.provider) || inputs.persona.provider == '') ? size(inputs.providers) : 1) }}"
+          fail-fast: false
         inputs:
           diff: "${{ inputs.diff }}"
           persona: "${{ inputs.persona }}"
           threshold: "${{ inputs.threshold }}"
-          repo: "${{ inputs.repo }}"
-          ref: "${{ inputs.ref }}"
-          context: "${{ inputs.context }}"
-          dismissed_findings: "${{ inputs.dismissed_findings }}"
+          repo: "${{ inputs.?repo }}"
+          ref: "${{ inputs.?ref }}"
+          context: "${{ inputs.?context }}"
+          dismissed_findings: "${{ inputs.?dismissed_findings }}"
+          provider_override: "${{ size(inputs.providers) > 0 && (!has(inputs.persona.provider) || inputs.persona.provider == '') ? inputs.providers[matrix.provider_idx] : '' }}"
+        tasks:
+          single_review:
+            uses: ethpandaops/code-reviewer@1
+            inputs:
+              diff: "${{ inputs.diff }}"
+              persona: "${{ inputs.persona }}"
+              threshold: "${{ inputs.threshold }}"
+              repo: "${{ inputs.?repo }}"
+              ref: "${{ inputs.?ref }}"
+              context: "${{ inputs.?context }}"
+              dismissed_findings: "${{ inputs.?dismissed_findings }}"
+              provider_override: "${{ inputs.provider_override }}"
+            outputs:
+              score: score
+              verdict: verdict
+              findings: findings
+              reasoning: reasoning
+              reviewer_role: reviewer_role
         outputs:
-          score: score
-          verdict: verdict
-          findings: findings
-          reasoning: reasoning
-          reviewer_role: reviewer_role
+          provider_reviews: 'append(${{ {"role": tasks.single_review.outputs.reviewer_role, "provider": inputs.provider_override, "score": tasks.single_review.outputs.score, "verdict": tasks.single_review.outputs.verdict, "findings": tasks.single_review.outputs.findings, "reasoning": tasks.single_review.outputs.reasoning} }})'
+          schema:
+            provider_reviews:
+              type: array
+              items:
+                type: object
+                properties:
+                  role:
+                    type: string
+                  provider:
+                    type: string
+                    description: "Provider that produced this review. Empty string when no override was applied."
+                  score:
+                    type: number
+                  verdict:
+                    type: string
+                  findings:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                        severity:
+                          type: string
+                        location:
+                          type: string
+                        observation:
+                          type: string
+                        impact:
+                          type: string
+                        suggestion:
+                          type: string
+                        source:
+                          type: string
+                      required: [type, severity, observation]
+                  reasoning:
+                    type: string
+                required: [role, score, verdict, findings, reasoning]
+      persona_judge:
+        needs: [provider_fanout]
+        if: "${{ size(tasks.provider_fanout.outputs.provider_reviews) > 1 }}"
+        selection: {capabilities: [reasoning]}
+        run: persona-provider-judge
+        quality-gate: "${{ result.score >= 0 && result.score <= 100 && has(result.verdict) && (result.verdict == 'pass' || result.verdict == 'fail') && has(result.findings) && has(result.reasoning) && size(result.reasoning) > 0 && has(result.role) && size(result.role) > 0 }}"
+        instructions: |
+          You are converging multiple provider reviews produced by the SAME
+          persona into one authoritative review for that persona. Each input
+          review came from the identical prompt and persona, differing only in
+          the backing provider — so divergences are provider-specific signal,
+          not disagreement between experts.
+
+          Process:
+          1. Average the per-provider scores to produce one persona score.
+          2. Collapse verdicts conservatively: if any provider says "fail",
+             the persona verdict is "fail". Otherwise "pass".
+          3. Deduplicate findings across providers. Two findings are the same
+             when they reference the same location and describe the same
+             underlying issue. When merging:
+             - Preserve the strongest severity among duplicates
+             - Preserve the most specific location and impact text
+             - Preserve any source citation (URL, CVE, doc reference)
+             - Record every provider that flagged it in providers_agreeing
+          4. Keep findings only one provider flagged, but mark them accordingly
+             in providers_agreeing. Do not drop them — they are evidence from
+             that provider's perspective; the top-level judge decides confidence.
+          5. Resolve contradictions. If provider A flags an issue and provider
+             B explicitly states that code is fine, keep the flagged finding
+             but record the dissenting provider in contradicted_by. Sourced
+             findings (source field set) win against memory-only contradictions.
+          6. Do NOT introduce new findings. You are aggregating only.
+
+          Write reasoning as a short provider-agreement summary: which
+          providers agreed, which disagreed, and how confident the merged
+          review is overall.
+
+          The output role MUST match the persona role shared across all input
+          reviews.
+        inputs:
+          reviews: "${{ tasks.provider_fanout.outputs.provider_reviews }}"
+          threshold: "${{ inputs.threshold }}"
+        outputs:
+          role: "${{ result.role }}"
+          score: "${{ result.score }}"
+          verdict: "${{ result.verdict }}"
+          findings: "${{ result.findings }}"
+          reasoning: "${{ result.reasoning }}"
+          schema:
+            role:
+              type: string
+              description: The persona role this converged review represents
+            score:
+              type: number
+              description: Mean score across providers (0-100)
+            verdict:
+              type: string
+              enum: [pass, fail]
+              description: Conservative verdict — fail if any provider failed
+            findings:
+              type: array
+              items:
+                type: object
+                properties:
+                  type:
+                    type: string
+                  severity:
+                    type: string
+                  location:
+                    type: string
+                  observation:
+                    type: string
+                  impact:
+                    type: string
+                  suggestion:
+                    type: string
+                  source:
+                    type: string
+                    description: "URL or doc reference (present when finding is backed by external evidence)"
+                  providers_agreeing:
+                    type: array
+                    items:
+                      type: string
+                    description: Providers that flagged this finding
+                  contradicted_by:
+                    type: array
+                    items:
+                      type: string
+                    description: Providers that explicitly disagreed with this finding
+                required: [type, severity, observation]
+              description: Deduplicated findings with per-provider agreement tracking
+            reasoning:
+              type: string
+              description: Summary of provider agreement for this persona
     outputs:
-      reviews: 'append(${{ {"role": tasks.single_review.outputs.reviewer_role, "score": tasks.single_review.outputs.score, "verdict": tasks.single_review.outputs.verdict, "findings": tasks.single_review.outputs.findings, "reasoning": tasks.single_review.outputs.reasoning} }})'
+      reviews: >-
+        append(${{
+          size(tasks.provider_fanout.outputs.provider_reviews) > 1
+            ? {"role": tasks.persona_judge.outputs.role, "score": tasks.persona_judge.outputs.score, "verdict": tasks.persona_judge.outputs.verdict, "findings": tasks.persona_judge.outputs.findings, "reasoning": tasks.persona_judge.outputs.reasoning}
+            : {"role": tasks.provider_fanout.outputs.provider_reviews[0].role, "score": tasks.provider_fanout.outputs.provider_reviews[0].score, "verdict": tasks.provider_fanout.outputs.provider_reviews[0].verdict, "findings": tasks.provider_fanout.outputs.provider_reviews[0].findings, "reasoning": tasks.provider_fanout.outputs.provider_reviews[0].reasoning}
+        }})
       schema:
         reviews:
           type: array
@@ -156,6 +328,8 @@ tasks:
                       type: string
                     observation:
                       type: string
+                    location:
+                      type: string
                     impact:
                       type: string
                     suggestion:
@@ -163,6 +337,16 @@ tasks:
                     source:
                       type: string
                       description: "URL or doc reference (present when finding is backed by external evidence)"
+                    providers_agreeing:
+                      type: array
+                      items:
+                        type: string
+                      description: Providers that flagged this finding (only set when the persona fanned out across providers)
+                    contradicted_by:
+                      type: array
+                      items:
+                        type: string
+                      description: Providers that explicitly disagreed with this finding
                   required: [type, severity, observation]
               reasoning:
                 type: string
@@ -182,6 +366,12 @@ tasks:
       reviewer. The scores_by_reviewer output MUST contain one entry per
       reviewer with their exact role and score.
 
+      Each review represents a single persona. If the persona was fanned out
+      across multiple providers upstream, its findings may carry
+      providers_agreeing (and contradicted_by) metadata. Treat this as
+      evidence weight: cross-provider agreement on a finding is a stronger
+      signal than single-provider evidence.
+
       Process:
       1. List every reviewer's role and score. Calculate the arithmetic
          mean of ALL scores — not just one reviewer's score
@@ -189,7 +379,8 @@ tasks:
          code location with similar descriptions, merge into one entry.
          Preserve the exact file:line location from the original finding.
          Use the strongest severity among duplicates. Record all agreeing
-         reviewer roles in agreed_by
+         reviewer roles in agreed_by. When merging, preserve the union of
+         providers_agreeing across the contributing findings
       3. Resolve conflicts — when reviewers disagree on severity or
          whether something is an issue, weigh the specialist in that
          domain more heavily (e.g. Security Auditor wins on security
@@ -200,11 +391,13 @@ tasks:
          severity is low or info, only one reviewer flagged it, and the
          evidence is weak or speculative. Keep low-severity findings if
          multiple reviewers agree. NEVER filter findings that include a
-         source citation — sourced findings are evidence, not speculation
+         source citation or that were confirmed across multiple providers
+         (providers_agreeing size >= 2) — those are evidence, not speculation
       5. Rank remaining findings by severity (critical > high > medium >
          low) then by confidence (multi-reviewer > single-reviewer).
          Findings with source citations get a confidence floor of 70
-         regardless of agreement count
+         regardless of agreement count. Findings where providers_agreeing
+         size >= 2 get an additional +10 confidence boost
       6. Determine verdict: approve (avg >= threshold and no critical
          findings), request_changes (any critical or high findings),
          reject (avg < 50 or multiple critical findings)
@@ -212,7 +405,8 @@ tasks:
       For each unified finding, record which reviewers flagged it and
       assign confidence: 90+ if 3+ reviewers agree, 70-89 if 2 agree,
       50-69 if only one reviewer flagged it with strong evidence.
-      Preserve the source field from findings when present.
+      Preserve the source field and providers_agreeing union from findings
+      when present.
 
       Do not introduce new findings — you are aggregating, not reviewing.
 
@@ -268,9 +462,14 @@ tasks:
                 items:
                   type: string
                 description: Reviewer roles that flagged this finding
+              providers_agreeing:
+                type: array
+                items:
+                  type: string
+                description: Union of providers that flagged this finding across all contributing reviewers (only set when the committee fanned out across providers)
               confidence:
                 type: number
-                description: Confidence score 0-100 based on reviewer agreement
+                description: Confidence score 0-100 based on reviewer agreement and provider agreement
             required: [severity, location, observation, impact, suggestion, agreed_by, confidence]
           description: Deduplicated, ranked findings with agreement tracking
         scores_by_reviewer:

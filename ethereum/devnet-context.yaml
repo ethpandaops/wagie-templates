@@ -24,7 +24,7 @@ tasks:
     uses: ethpandaops/devnet-notes@1
     inputs:
       network: ${{ inputs.network }}
-      notes_url: "${{ has(inputs.notes_url) ? inputs.notes_url : '' }}"
+      notes_url: "${{ inputs.?notes_url }}"
     outputs:
       notes_url: notes_url
       notes_summary: notes_summary

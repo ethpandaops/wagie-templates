@@ -7,8 +7,8 @@ description: >-
 tags: ["code-review", "persona", "reviewer"]
 defaults:
   retry:
-    max: 1
-    on: [error, timeout, schema-validation, quality-gate]
+    max: 3
+    on: [error, timeout]
     backoff:
       delay: 5s
       factor: 2
@@ -77,14 +77,28 @@ inputs:
             type: string
             description: Why this was dismissed as a false positive
         required: [finding, reasoning]
+  provider_override:
+    type: string
+    description: "Provider to run this review on (takes precedence over persona.provider). Used by the committee to fan a single persona out across providers."
+  model_override:
+    type: string
+    description: "Model to run this review on (takes precedence over persona.model). Used by the committee to fan a single persona out across models."
 tasks:
   review:
     selection:
       capabilities: [reasoning]
       match: >-
         (!has(inputs.persona.requires_tools) || inputs.persona.requires_tools != true || 'tool-use' in capabilities)
-        && (!has(inputs.persona.provider) || inputs.persona.provider == '' || inputs.persona.provider in providers)
-        && (!has(inputs.persona.model) || inputs.persona.model == '' || inputs.persona.model in models)
+        && (
+          (has(inputs.provider_override) && inputs.provider_override != '')
+            ? inputs.provider_override in providers
+            : (!has(inputs.persona.provider) || inputs.persona.provider == '' || inputs.persona.provider in providers)
+        )
+        && (
+          (has(inputs.model_override) && inputs.model_override != '')
+            ? inputs.model_override in models
+            : (!has(inputs.persona.model) || inputs.persona.model == '' || inputs.persona.model in models)
+        )
     run: persona-code-review
     quality-gate: "${{ result.score >= 0 && result.score <= 100 && has(result.verdict) && (result.verdict == 'pass' || result.verdict == 'fail') && has(result.findings) && has(result.reasoning) && size(result.reasoning) > 0 }}"
     instructions: |

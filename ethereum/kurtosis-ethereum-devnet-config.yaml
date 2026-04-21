@@ -74,11 +74,11 @@ tasks:
     uses: ethpandaops/devnet-topology-profile@1
     inputs:
       devnet_name: ${{ inputs.devnet_name }}
-      goal: "${{ has(inputs.goal) ? inputs.goal : '' }}"
-      client_type: "${{ has(inputs.client_type) ? inputs.client_type : '' }}"
-      image_hint: "${{ has(inputs.image_hint) ? inputs.image_hint : '' }}"
-      client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
-      constraints: "${{ has(inputs.constraints) ? inputs.constraints : '' }}"
+      goal: "${{ inputs.?goal }}"
+      client_type: "${{ inputs.?client_type }}"
+      image_hint: "${{ inputs.?image_hint }}"
+      client_pairs: "${{ inputs.?client_pairs }}"
+      constraints: "${{ inputs.?constraints }}"
       notes_summary: "${{ has(tasks.devnet_notes.outputs.notes_summary) ? tasks.devnet_notes.outputs.notes_summary : '' }}"
       notes_highlights: "${{ has(tasks.devnet_notes.outputs.notes_highlights) ? tasks.devnet_notes.outputs.notes_highlights : [] }}"
       notes_assumptions: "${{ has(tasks.devnet_notes.outputs.notes_assumptions) ? tasks.devnet_notes.outputs.notes_assumptions : [] }}"

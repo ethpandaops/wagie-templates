@@ -55,9 +55,9 @@ tasks:
     inputs:
       topic: "${{ inputs.topic }}"
       depth: "${{ inputs.depth }}"
-      context: "${{ has(inputs.context) ? inputs.context : '' }}"
-      model: "${{ has(inputs.planning_model) ? inputs.planning_model : '' }}"
-      provider: "${{ has(inputs.planning_provider) ? inputs.planning_provider : '' }}"
+      context: "${{ inputs.?context }}"
+      model: "${{ inputs.?planning_model }}"
+      provider: "${{ inputs.?planning_provider }}"
     outputs:
       perspectives: perspectives
       questions: questions
@@ -80,8 +80,8 @@ tasks:
       gaps: "${{ loop.gaps }}"
       previous_gap_count: "${{ loop.gap_count }}"
       plan_questions: "${{ tasks.plan.outputs.questions }}"
-      investigation_model: "${{ has(inputs.investigation_model) ? inputs.investigation_model : '' }}"
-      investigation_provider: "${{ has(inputs.investigation_provider) ? inputs.investigation_provider : '' }}"
+      investigation_model: "${{ inputs.?investigation_model }}"
+      investigation_provider: "${{ inputs.?investigation_provider }}"
     tasks:
       investigate:
         uses: ethpandaops/research-findings@1
@@ -90,8 +90,8 @@ tasks:
           previous_findings: "${{ inputs.previous_findings }}"
           gaps: "${{ inputs.gaps }}"
           plan_questions: "${{ inputs.plan_questions }}"
-          model: "${{ inputs.investigation_model }}"
-          provider: "${{ inputs.investigation_provider }}"
+          model: "${{ inputs.?investigation_model }}"
+          provider: "${{ inputs.?investigation_provider }}"
         outputs:
           findings: findings
       accumulate:
@@ -152,8 +152,8 @@ tasks:
           findings: "${{ tasks.accumulate.outputs.findings }}"
           previous_gap_count: "${{ inputs.previous_gap_count }}"
           plan_questions: "${{ inputs.plan_questions }}"
-          model: "${{ inputs.investigation_model }}"
-          provider: "${{ inputs.investigation_provider }}"
+          model: "${{ inputs.?investigation_model }}"
+          provider: "${{ inputs.?investigation_provider }}"
         outputs:
           completeness: completeness
           gaps: gaps
@@ -231,8 +231,8 @@ tasks:
       topic: "${{ inputs.topic }}"
       findings: "${{ tasks.research.outputs.findings }}"
       perspectives: "${{ tasks.plan.outputs.perspectives }}"
-      model: "${{ has(inputs.verification_model) ? inputs.verification_model : '' }}"
-      provider: "${{ has(inputs.verification_provider) ? inputs.verification_provider : '' }}"
+      model: "${{ inputs.?verification_model }}"
+      provider: "${{ inputs.?verification_provider }}"
     outputs:
       verified_findings: verified_findings
       issues: issues

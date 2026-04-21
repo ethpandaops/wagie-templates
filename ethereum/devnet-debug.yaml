@@ -523,7 +523,7 @@ tasks:
     inputs:
       network_name: ${{ tasks.context.outputs.network_name }}
       investigation_timeframe: ${{ tasks.context.outputs.investigation_timeframe }}
-      problem_statement: "${{ has(inputs.problem_statement) ? inputs.problem_statement : '' }}"
+      problem_statement: "${{ inputs.?problem_statement }}"
       context_summary: ${{ tasks.context.outputs.summary }}
       issue_type: ${{ tasks.baseline.outputs.suspected_issue_type }}
       root_cause: "${{ tasks.baseline.outputs.has_finality_issues == true ? tasks.analyze_finality_causes.outputs.primary_cause : tasks.investigate_generic.outputs.suspected_root_cause }}"
