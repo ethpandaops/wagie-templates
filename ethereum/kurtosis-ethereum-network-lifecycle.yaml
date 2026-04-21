@@ -123,7 +123,7 @@ tasks:
         factor: 2
         max-delay: 1m
         jitter: true
-      timeout: 10m
+      timeout: 1h
     quality-gate: "${{ has(result.launch_summary) && size(result.launch_summary) > 0 }}"
     instructions: |-
       Launch the requested Ethereum network with Kurtosis.
@@ -182,7 +182,7 @@ tasks:
         factor: 2
         max-delay: 30s
         jitter: true
-      timeout: 5m
+      timeout: 1h
     quality-gate: "${{ has(result.validation_summary) && size(result.validation_summary) > 0 && has(result.stable) }}"
     instructions: |-
       Observe the launched Ethereum network over the requested observation window before writing the final operator summary.
@@ -272,7 +272,7 @@ tasks:
         factor: 2
         max-delay: 20s
         jitter: true
-      timeout: 2m
+      timeout: 1h
     quality-gate: "${{ has(result.summary) && size(result.summary) > 0 }}"
     instructions: |-
       Summarize the designed and launched Kurtosis Ethereum network for an operator.

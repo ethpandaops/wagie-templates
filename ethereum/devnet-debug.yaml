@@ -112,7 +112,7 @@ tasks:
         factor: 2
         max-delay: 30s
         jitter: true
-      timeout: 5m
+      timeout: 1h
     quality-gate: "${{ has(result.likely_causes) && size(result.likely_causes) > 0 && has(result.primary_cause) && size(result.primary_cause) > 0 && has(result.recommended_actions) && size(result.recommended_actions) > 0 }}"
     instructions: |-
       Analyze the most likely causes of the finality problem. You have finality assessment
@@ -261,7 +261,7 @@ tasks:
         factor: 2
         max-delay: 30s
         jitter: true
-      timeout: 5m
+      timeout: 1h
     quality-gate: "${{ has(result.findings_summary) && size(result.findings_summary) > 0 && has(result.suspected_root_cause) && size(result.suspected_root_cause) > 0 }}"
     instructions: |-
       Investigate the devnet issue using the baseline observations and available data surfaces.
@@ -417,7 +417,7 @@ tasks:
         factor: 2
         max-delay: 20s
         jitter: true
-      timeout: 2m
+      timeout: 1h
     quality-gate: "${{ has(result.verification_summary) && size(result.verification_summary) > 0 && has(result.issues) }}"
     instructions: |-
       Audit the investigation findings before they reach the operator.
@@ -474,7 +474,7 @@ tasks:
         factor: 2
         max-delay: 20s
         jitter: true
-      timeout: 2m
+      timeout: 1h
     quality-gate: "${{ has(result.summary) && size(result.summary) > 100 && has(result.severity) && size(result.severity) > 0 }}"
     instructions: |-
       Produce an operator-ready devnet debug summary.

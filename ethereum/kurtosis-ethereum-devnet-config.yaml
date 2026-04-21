@@ -109,7 +109,7 @@ tasks:
         factor: 2
         max-delay: 1m
         jitter: true
-      timeout: 5m
+      timeout: 1h
     quality-gate: "${{ has(result.config_summary) && size(result.config_summary) > 0 }}"
     instructions: |-
       Derive a minimal ethereum-package configuration from the resolved devnet context.

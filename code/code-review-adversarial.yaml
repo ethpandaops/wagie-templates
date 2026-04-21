@@ -14,7 +14,7 @@ defaults:
       factor: 2
       max-delay: 20s
       jitter: true
-    timeout: 2m
+    timeout: 1h
 inputs:
   diff:
     type: artifact
