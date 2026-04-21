@@ -93,14 +93,14 @@ tasks:
     uses: ethpandaops/kurtosis-ethereum-config@1
     inputs:
       goal: ${{ inputs.goal }}
-      constraints: "${{ has(inputs.constraints) ? inputs.constraints : '' }}"
-      example_hint: "${{ has(inputs.example_hint) ? inputs.example_hint : '' }}"
+      constraints: "${{ inputs.?constraints }}"
+      example_hint: "${{ inputs.?example_hint }}"
       package_ref: ${{ inputs.package_ref }}
       config_mode: ${{ inputs.config_mode }}
-      devnet_name: "${{ has(inputs.devnet_name) ? inputs.devnet_name : '' }}"
-      client_type: "${{ has(inputs.client_type) ? inputs.client_type : '' }}"
-      image_hint: "${{ has(inputs.image_hint) ? inputs.image_hint : '' }}"
-      client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
+      devnet_name: "${{ inputs.?devnet_name }}"
+      client_type: "${{ inputs.?client_type }}"
+      image_hint: "${{ inputs.?image_hint }}"
+      client_pairs: "${{ inputs.?client_pairs }}"
     outputs:
       resolved_network_name: resolved_network_name
       resolved_network_group: resolved_network_group

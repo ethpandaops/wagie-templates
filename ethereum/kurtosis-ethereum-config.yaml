@@ -76,12 +76,12 @@ tasks:
     if: ${{ inputs.config_mode == 'devnet-profile' }}
     uses: ethpandaops/kurtosis-ethereum-devnet-config@1
     inputs:
-      devnet_name: "${{ has(inputs.devnet_name) ? inputs.devnet_name : '' }}"
-      goal: "${{ has(inputs.goal) ? inputs.goal : '' }}"
-      client_type: "${{ has(inputs.client_type) ? inputs.client_type : '' }}"
-      image_hint: "${{ has(inputs.image_hint) ? inputs.image_hint : '' }}"
-      client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
-      constraints: "${{ has(inputs.constraints) ? inputs.constraints : '' }}"
+      devnet_name: "${{ inputs.?devnet_name }}"
+      goal: "${{ inputs.?goal }}"
+      client_type: "${{ inputs.?client_type }}"
+      image_hint: "${{ inputs.?image_hint }}"
+      client_pairs: "${{ inputs.?client_pairs }}"
+      constraints: "${{ inputs.?constraints }}"
       package_ref: ${{ inputs.package_ref }}
     outputs:
       resolved_network_name: resolved_network_name
