@@ -12,7 +12,7 @@ defaults:
       factor: 2
       max-delay: 1m
       jitter: true
-    timeout: 5m
+    timeout: 1h
 inputs:
   repo_url:
     type: string
@@ -103,7 +103,7 @@ tasks:
             factor: 2
             max-delay: 5m
             jitter: true
-          timeout: 30m
+          timeout: 1h
         quality-gate: "${{ has(result.baseline_metric) && has(result.baseline_commit) && size(result.baseline_commit) > 0 && has(result.workspace_path) && size(result.workspace_path) > 0 && has(result.effective_target_files) && size(result.effective_target_files) > 0 && has(result.effective_experiment_command) && size(result.effective_experiment_command) > 0 && has(result.effective_metric_name) && size(result.effective_metric_name) > 0 }}"
         instructions: |-
           Prepare a clean scratch workspace AND resolve all missing experiment parameters from the repo itself. Leadership only knows the repo URL and the goal; you have the cloned code, so you own discovery.
@@ -476,7 +476,7 @@ tasks:
             factor: 2
             max-delay: 1m
             jitter: true
-          timeout: 10m
+          timeout: 1h
         quality-gate: "${{ has(result.summary) && size(result.summary) > 0 && has(result.result_branch_url) && size(result.result_branch_url) > 0 && has(result.experiment_log_artifact) }}"
         instructions: |-
           Before anything else, `cd` into `workspace_path`. The git push and any commands in this task run relative to that directory.

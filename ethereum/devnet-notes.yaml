@@ -22,7 +22,7 @@ tasks:
         factor: 2
         max-delay: 30s
         jitter: true
-      timeout: 2m
+      timeout: 1h
     selection:
       capabilities: [tool-use]
     quality-gate: "${{ has(result.notes_url) && size(result.notes_url) > 0 && has(result.notes_summary) && size(result.notes_summary) > 0 }}"

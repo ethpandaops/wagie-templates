@@ -103,7 +103,7 @@ tasks:
         factor: 2
         max-delay: 1m
         jitter: true
-      timeout: 5m
+      timeout: 1h
     quality-gate: "${{ has(result.config_summary) && size(result.config_summary) > 0 && has(result.effective_client_pairs) && size(result.effective_client_pairs) > 0 }}"
     instructions: |-
       Design a sensible minimal `network_params.yaml` for the ethpandaops ethereum-package.
