@@ -1,5 +1,11 @@
-name: ethpandaops/devnet-notes
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/devnet-notes
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when a workflow needs the canonical operator notes for an Ethereum devnet; resolves the expected notes URL, extracts the most relevant network setup guidance, and summarizes assumptions or gaps.
 tags: ["devnet", "ethereum", "ethpandaops", "notes", "context"]

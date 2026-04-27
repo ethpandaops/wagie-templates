@@ -1,5 +1,11 @@
-name: ethpandaops/code-review-adversarial
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/code-review-adversarial
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when code needs rigorous adversarial review; an optimistic actor generates
   or improves code while a paranoid critic finds vulnerabilities, iterating until

@@ -1,5 +1,11 @@
-name: ethpandaops/devnet-topology-profile
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/devnet-topology-profile
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when a config workflow needs a minimal participant topology derived from devnet notes and explicit hints; returns representative client pairs and config-relevant assumptions only.
 tags: ["devnet", "ethereum", "configuration"]

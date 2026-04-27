@@ -1,5 +1,11 @@
-name: ethpandaops/devnet-baseline
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/devnet-baseline
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when a workflow needs an Ethereum devnet health assessment; checks fork status, participation, missed slots, node sync, and validator activity, then classifies the network state. Works for both routine status checks and incident triage.
 tags: ["devnet", "ethereum", "ethpandaops", "debugging", "status", "health", "baseline"]
@@ -448,7 +454,7 @@ tasks:
           description: True if finality is not progressing normally (finalized=false, participation below 66.7%, finality checkpoints stalled, or network split detected)
   classify_issue:
     needs: [observe]
-    uses: wagie/decide@1
+    uses: io.wagie.core/decide@1.0.0
     inputs:
       question: "Based on the devnet baseline observations, what is the most likely issue type?"
       context: |-

@@ -1,5 +1,11 @@
-name: ethpandaops/research-findings
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/research-findings
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when a topic needs a typed batch of research findings; returns incremental findings with evidence quality metadata, focused on breadth first and then explicit gap closure.
 tags: ["research", "findings", "evidence"]

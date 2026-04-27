@@ -1,5 +1,11 @@
-name: ethpandaops/kurtosis-ethereum-devnet-config
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/kurtosis-ethereum-devnet-config
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Internal building block for `kurtosis-ethereum-config` when `config_mode` is `devnet-profile`. Derives a minimal Kurtosis ethereum-package config from an existing devnet or devnet-group profile. Call directly only when you need the full derivation surface (notes, topology, reference) without the facade.
 tags: ["kurtosis", "ethereum", "ethpandaops", "devnet", "configuration"]
@@ -61,7 +67,7 @@ inputs:
     description: Kurtosis package reference to target
 tasks:
   devnet_notes:
-    uses: ethpandaops/devnet-notes@1
+    uses: io.ethpandaops/devnet-notes@1.0.0
     inputs:
       network: ${{ inputs.devnet_name }}
     outputs:
@@ -71,7 +77,7 @@ tasks:
       notes_assumptions: assumptions
   topology_profile:
     needs: [devnet_notes]
-    uses: ethpandaops/devnet-topology-profile@1
+    uses: io.ethpandaops/devnet-topology-profile@1.0.0
     inputs:
       devnet_name: ${{ inputs.devnet_name }}
       goal: "${{ inputs.?goal }}"
@@ -89,7 +95,7 @@ tasks:
       fallback_pair_added: fallback_pair_added
   package_reference:
     needs: [topology_profile]
-    uses: ethpandaops/kurtosis-ethereum-reference@1
+    uses: io.ethpandaops/kurtosis-ethereum-reference@1.0.0
     inputs:
       section: participants
       package_ref: ${{ inputs.package_ref }}

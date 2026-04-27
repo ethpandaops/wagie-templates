@@ -1,5 +1,11 @@
-name: ethpandaops/devnet-context
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/devnet-context
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when a workflow needs normalized Ethereum devnet context; resolves network or devnet-group identity, available observability surfaces, likely instance inventory, and an investigation timeframe. Intake stage inside `devnet-debug`; also callable standalone for context resolution alone.
 tags: ["devnet", "ethereum", "ethpandaops", "debugging", "context"]
@@ -21,7 +27,7 @@ inputs:
     description: Optional explicit notes URL override for the devnet
 tasks:
   notes:
-    uses: ethpandaops/devnet-notes@1
+    uses: io.ethpandaops/devnet-notes@1.0.0
     inputs:
       network: ${{ inputs.network }}
       notes_url: "${{ inputs.?notes_url }}"

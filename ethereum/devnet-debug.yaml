@@ -1,5 +1,11 @@
-name: ethpandaops/devnet-debug
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/devnet-debug
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when an Ethereum devnet needs structured diagnosis or a status report; gathers network context, builds a health baseline, investigates issues if found, validates findings, and returns an operator-ready summary. Works for both active incidents and routine status checks.
 tags: ["devnet", "ethereum", "ethpandaops", "debugging", "status", "health", "incident", "observability"]
@@ -30,7 +36,7 @@ inputs:
         type: string
 tasks:
   context:
-    uses: ethpandaops/devnet-context@1
+    uses: io.ethpandaops/devnet-context@1.0.0
     inputs:
       network: ${{ inputs.network }}
       timeframe: ${{ inputs.timeframe }}
@@ -48,7 +54,7 @@ tasks:
       notes_assumptions: notes_assumptions
   baseline:
     needs: [context]
-    uses: ethpandaops/devnet-baseline@1
+    uses: io.ethpandaops/devnet-baseline@1.0.0
     inputs:
       problem_statement: ${{ inputs.problem_statement }}
       focus: ${{ inputs.focus }}
@@ -77,7 +83,7 @@ tasks:
   assess_finality:
     needs: [context, baseline]
     if: ${{ tasks.baseline.outputs.has_finality_issues == true }}
-    uses: ethpandaops/devnet-finality-assessment@1
+    uses: io.ethpandaops/devnet-finality-assessment@1.0.0
     inputs:
       network_name: ${{ tasks.context.outputs.network_name }}
       investigation_timeframe: ${{ tasks.context.outputs.investigation_timeframe }}
@@ -519,7 +525,7 @@ tasks:
           enum: [low, medium, high, critical]
   render_report:
     needs: [context, baseline, assess_finality, analyze_finality_causes, investigate_generic, conclude]
-    uses: ethpandaops/devnet-report@1
+    uses: io.ethpandaops/devnet-report@1.0.0
     inputs:
       network_name: ${{ tasks.context.outputs.network_name }}
       investigation_timeframe: ${{ tasks.context.outputs.investigation_timeframe }}

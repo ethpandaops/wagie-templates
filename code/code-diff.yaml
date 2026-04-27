@@ -1,5 +1,11 @@
-name: ethpandaops/code-diff
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/code-diff
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when a git diff is needed between two refs; clones the repo, determines
   the target ref automatically if not provided, and produces a diff artifact

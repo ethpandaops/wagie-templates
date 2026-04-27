@@ -1,5 +1,11 @@
-name: ethpandaops/code-verification
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/code-verification
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when code changes need dynamic verification; clones the repo, applies the
   diff, discovers and runs the project's test suite, linter, and type checker,

@@ -1,5 +1,11 @@
-name: ethpandaops/code-review-fix-loop
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/code-review-fix-loop
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when code needs iterative improvement via committee review; reviews with
   the full persona panel, fixes flagged issues, optionally verifies against the
@@ -129,7 +135,7 @@ tasks:
       prev_fp_count: "${{ loop.false_positive_count }}"
     tasks:
       review:
-        uses: ethpandaops/code-review-committee@1
+        uses: io.ethpandaops/code-review-committee@1.0.0
         inputs:
           diff: "${{ inputs.diff }}"
           personas: "${{ inputs.?personas }}"
@@ -220,7 +226,7 @@ tasks:
       verify:
         needs: [fix]
         if: "${{ has(inputs.repo) && inputs.repo != '' && has(tasks.fix.outputs.revised_code) }}"
-        uses: ethpandaops/code-verification@1
+        uses: io.ethpandaops/code-verification@1.0.0
         inputs:
           repo: "${{ inputs.?repo }}"
           source_ref: "${{ inputs.?ref }}"
