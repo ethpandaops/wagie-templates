@@ -2,7 +2,7 @@ module github.com/ethpandaops/wagie-templates
 
 go 1.26.2
 
-require github.com/ethpandaops/wagie v0.0.55
+require github.com/ethpandaops/wagie v0.0.57
 
 require (
 	cel.dev/expr v0.25.1 // indirect
@@ -29,6 +29,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/coder/acp-go-sdk v0.12.0 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
 	github.com/daulet/tokenizers v1.26.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -37,10 +38,11 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/ethpandaops/agent-sdk-observability v0.0.1 // indirect
-	github.com/ethpandaops/claude-agent-sdk-go v0.0.10 // indirect
-	github.com/ethpandaops/codex-agent-sdk-go v0.0.12 // indirect
+	github.com/ethpandaops/claude-agent-sdk-go v0.0.11 // indirect
+	github.com/ethpandaops/codex-agent-sdk-go v0.0.13 // indirect
 	github.com/ethpandaops/lm-agent-sdk-go v0.0.1 // indirect
-	github.com/ethpandaops/openrouter-agent-sdk-go v0.0.3 // indirect
+	github.com/ethpandaops/opencode-agent-sdk-go v0.0.3 // indirect
+	github.com/ethpandaops/openrouter-agent-sdk-go v0.0.4 // indirect
 	github.com/ethpandaops/vllm-agent-sdk-go v0.0.2 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
@@ -80,7 +82,7 @@ require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
-	github.com/modelcontextprotocol/go-sdk v1.4.1 // indirect
+	github.com/modelcontextprotocol/go-sdk v1.5.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/netresearch/go-cron v0.14.0 // indirect

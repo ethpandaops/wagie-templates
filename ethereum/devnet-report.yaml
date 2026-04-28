@@ -1,5 +1,11 @@
-name: ethpandaops/devnet-report
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/devnet-report
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when a workflow needs a shareable Ethereum devnet report; renders structured outputs (from baseline, debug, or finality assessment) into concise markdown for operators and stakeholders. Works for both incident reports and routine status reports.
 tags: ["devnet", "ethereum", "ethpandaops", "reporting", "status", "incident"]

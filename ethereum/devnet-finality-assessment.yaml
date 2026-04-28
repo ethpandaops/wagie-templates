@@ -1,5 +1,11 @@
-name: ethpandaops/devnet-finality-assessment
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/devnet-finality-assessment
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when a workflow needs a structured Ethereum devnet finality assessment; gathers finality observations and classifies the current finality state.
 tags: ["devnet", "ethereum", "ethpandaops", "finality"]
@@ -229,7 +235,7 @@ tasks:
           description: Epoch-by-epoch participation and finality status
   classify_status:
     needs: [observe]
-    uses: wagie/decide@1
+    uses: dev.wagie/decide@1.0.0
     inputs:
       question: "Based on the finality observations, what is the current finality state?"
       context: |-

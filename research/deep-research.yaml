@@ -1,5 +1,11 @@
-name: ethpandaops/deep-research
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/deep-research
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when a topic requires structured, iterative research; decomposes via perspective-driven planning, accumulates typed findings across iterations, assesses coverage with a structured rubric, and verifies results adversarially before output.
 tags: ["research", "iterative", "deep-research"]
@@ -51,7 +57,7 @@ inputs:
     description: "Provider for verification and synthesis (e.g. claudecode, codex)"
 tasks:
   plan:
-    uses: ethpandaops/research-plan@1
+    uses: io.ethpandaops/research-plan@1.0.0
     inputs:
       topic: "${{ inputs.topic }}"
       depth: "${{ inputs.depth }}"
@@ -84,7 +90,7 @@ tasks:
       investigation_provider: "${{ inputs.?investigation_provider }}"
     tasks:
       investigate:
-        uses: ethpandaops/research-findings@1
+        uses: io.ethpandaops/research-findings@1.0.0
         inputs:
           topic: "${{ inputs.topic }}"
           previous_findings: "${{ inputs.previous_findings }}"
@@ -145,7 +151,7 @@ tasks:
               description: Accumulated research findings across iterations
       assess:
         needs: [accumulate]
-        uses: ethpandaops/research-coverage-assess@1
+        uses: io.ethpandaops/research-coverage-assess@1.0.0
         inputs:
           topic: "${{ inputs.topic }}"
           depth: "${{ inputs.depth }}"
@@ -226,7 +232,7 @@ tasks:
           type: string
   verify:
     needs: [research]
-    uses: ethpandaops/research-verify@1
+    uses: io.ethpandaops/research-verify@1.0.0
     inputs:
       topic: "${{ inputs.topic }}"
       findings: "${{ tasks.research.outputs.findings }}"

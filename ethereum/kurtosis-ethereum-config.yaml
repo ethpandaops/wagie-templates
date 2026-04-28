@@ -1,5 +1,11 @@
-name: ethpandaops/kurtosis-ethereum-config
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/kurtosis-ethereum-config
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when a workflow needs an ethereum-package configuration; design a sensible minimal
   `network_params.yaml` by default, or replicate an existing devnet profile when
@@ -74,7 +80,7 @@ inputs:
 tasks:
   replicate_devnet_config:
     if: ${{ inputs.config_mode == 'devnet-profile' }}
-    uses: ethpandaops/kurtosis-ethereum-devnet-config@1
+    uses: io.ethpandaops/kurtosis-ethereum-devnet-config@1.0.0
     inputs:
       devnet_name: "${{ inputs.?devnet_name }}"
       goal: "${{ inputs.?goal }}"

@@ -1,5 +1,11 @@
-name: ethpandaops/kurtosis-enclave-cleanup
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/kurtosis-enclave-cleanup
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when a workflow needs to remove a Kurtosis enclave cleanly; tears down the enclave and summarizes the result.
 tags: ["kurtosis", "ethereum", "ethpandaops", "cleanup"]

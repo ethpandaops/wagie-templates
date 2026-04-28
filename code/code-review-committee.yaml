@@ -1,5 +1,11 @@
-name: ethpandaops/code-review-committee
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/code-review-committee
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when code needs multi-perspective review; fans out reviewer personas in
   parallel — optionally crossing each persona with multiple providers — then a
@@ -148,7 +154,7 @@ tasks:
           provider_override: "${{ size(inputs.providers) > 0 && (!has(inputs.persona.provider) || inputs.persona.provider == '') ? inputs.providers[matrix.provider_idx] : '' }}"
         tasks:
           single_review:
-            uses: ethpandaops/code-reviewer@1
+            uses: io.ethpandaops/code-reviewer@1.0.0
             inputs:
               diff: "${{ inputs.diff }}"
               persona: "${{ inputs.persona }}"

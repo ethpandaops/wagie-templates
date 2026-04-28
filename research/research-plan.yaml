@@ -1,5 +1,11 @@
-name: ethpandaops/research-plan
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/research-plan
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when a research topic needs structured decomposition before investigation; discovers diverse perspectives and produces a prioritized plan of sub-questions.
 tags: ["research", "planning", "decomposition"]

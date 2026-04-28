@@ -1,5 +1,11 @@
-name: ethpandaops/kurtosis-ethereum-bug-hunt
-version: "1.1"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/kurtosis-ethereum-bug-hunt
+version: "1.1.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when a workflow needs to launch or inspect a Kurtosis Ethereum network and iteratively hunt for candidate bugs or anomalies. Carries forward typed findings and remaining gaps across rounds until coverage is sufficient or additional probing has diminishing value.
 tags: ["kurtosis", "ethereum", "ethpandaops", "bug-hunt", "debugging", "investigation", "iterative"]
@@ -91,7 +97,7 @@ inputs:
     description: Whether to remove the enclave after the hunt
 tasks:
   lifecycle:
-    uses: ethpandaops/kurtosis-ethereum-network-lifecycle@1
+    uses: io.ethpandaops/kurtosis-ethereum-network-lifecycle@1.0.0
     selection: {sticky: true}
     inputs:
       goal: ${{ inputs.goal }}
@@ -550,7 +556,7 @@ tasks:
 finally:
   cleanup_enclave:
     if: ${{ inputs.auto_cleanup == true && inputs.launch == true }}
-    uses: ethpandaops/kurtosis-enclave-cleanup@1
+    uses: io.ethpandaops/kurtosis-enclave-cleanup@1.0.0
     inputs:
       enclave_name: ${{ inputs.enclave_name }}
       force: true

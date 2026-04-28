@@ -1,5 +1,11 @@
-name: ethpandaops/kurtosis-ethereum-reference
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/kurtosis-ethereum-reference
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when a workflow needs targeted ethereum-package reference material; retrieves the specific config, client, service, fork, or example information needed for a Kurtosis task.
 tags: ["kurtosis", "ethereum", "ethpandaops", "reference"]

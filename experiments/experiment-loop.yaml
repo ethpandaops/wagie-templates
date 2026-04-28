@@ -1,5 +1,11 @@
-name: ethpandaops/experiment-loop
-version: "1.0"
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/experiment-loop
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
 description: >-
   Use when iteratively tuning any git-tracked artifact in a repo against a scalar metric. Caller only needs to provide `repo_url`, `goal`, and `result_branch`; the setup task clones the repo, discovers or scaffolds the missing pieces (target files, setup command, benchmark, correctness command, metric name) from the goal and repo conventions, then the loop proposes → applies → checks → measures → keeps-or-reverts greedily until a patience window of no-improvement or max iterations. Works for code performance, SQL queries, prompts, configs, ML training loops, Docker image size, or any repo that can emit a scalar from a shell command. Any of the discovered parameters can be overridden by the caller when they are known up front.
 tags: ["experiment", "optimization", "hillclimb", "benchmark", "autonomous", "autoresearch", "metric"]
@@ -374,7 +380,7 @@ tasks:
                   description: Last few lines of the command output for diagnostic context
           decide:
             needs: [correctness, execute]
-            uses: wagie/decide@1
+            uses: dev.wagie/decide@1.0.0
             inputs:
               question: "Should this experiment change be kept or reverted?"
               context: |-
