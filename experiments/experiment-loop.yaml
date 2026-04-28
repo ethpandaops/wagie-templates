@@ -380,7 +380,7 @@ tasks:
                   description: Last few lines of the command output for diagnostic context
           decide:
             needs: [correctness, execute]
-            uses: io.wagie.core/decide@1.0.0
+            uses: dev.wagie/decide@1.0.0
             inputs:
               question: "Should this experiment change be kept or reverted?"
               context: |-

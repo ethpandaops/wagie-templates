@@ -454,7 +454,7 @@ tasks:
           description: True if finality is not progressing normally (finalized=false, participation below 66.7%, finality checkpoints stalled, or network split detected)
   classify_issue:
     needs: [observe]
-    uses: io.wagie.core/decide@1.0.0
+    uses: dev.wagie/decide@1.0.0
     inputs:
       question: "Based on the devnet baseline observations, what is the most likely issue type?"
       context: |-

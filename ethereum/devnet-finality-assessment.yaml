@@ -235,7 +235,7 @@ tasks:
           description: Epoch-by-epoch participation and finality status
   classify_status:
     needs: [observe]
-    uses: io.wagie.core/decide@1.0.0
+    uses: dev.wagie/decide@1.0.0
     inputs:
       question: "Based on the finality observations, what is the current finality state?"
       context: |-
