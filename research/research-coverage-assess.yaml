@@ -82,9 +82,6 @@ tasks:
   assess:
     selection:
       capabilities: [reasoning]
-      match: >-
-        (!has(inputs.provider) || inputs.provider == '' || inputs.provider in providers)
-        && (!has(inputs.model) || inputs.model == '' || inputs.model in models)
     run: assess-coverage
     quality-gate: "${{ has(result.gaps) && has(result.summary) && size(result.summary) > 0 && has(result.completeness) && has(result.scores) }}"
     instructions: |

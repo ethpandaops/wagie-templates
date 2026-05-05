@@ -246,11 +246,6 @@ tasks:
       verification_summary: verification_summary
   synthesize:
     needs: [verify]
-    selection:
-      skills: [writing]
-      match: >-
-        (!has(inputs.verification_provider) || inputs.verification_provider == '' || inputs.verification_provider in providers)
-        && (!has(inputs.verification_model) || inputs.verification_model == '' || inputs.verification_model in models)
     run: synthesize-research-report
     quality-gate: "${{ has(result.summary) && size(result.summary) > 0 }}"
     instructions: |

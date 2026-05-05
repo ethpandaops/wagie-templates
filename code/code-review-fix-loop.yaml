@@ -153,7 +153,7 @@ tasks:
       fix:
         needs: [review]
         if: "${{ tasks.review.outputs.verdict != 'approve' }}"
-        selection: {skills: [coding]}
+        selection: {capabilities: [tool-use]}
         run: apply-review-fixes
         quality-gate: "${{ has(result.fixes_applied) }}"
         instructions: |

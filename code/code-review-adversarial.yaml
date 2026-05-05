@@ -151,7 +151,7 @@ tasks:
       actor:
         needs: [critic]
         if: "${{ tasks.critic.outputs.approved != true }}"
-        selection: {skills: [coding]}
+        selection: {capabilities: [tool-use]}
         run: adversarial-code-actor
         quality-gate: "${{ has(result.fixes_applied) }}"
         instructions: |
