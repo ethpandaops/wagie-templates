@@ -125,7 +125,6 @@ inputs:
         type: string
 tasks:
   render_report:
-    selection: {skills: [writing]}
     run: render-devnet-report
     quality-gate: "${{ has(result.report) && size(result.report) > 100 }}"
     instructions: |-

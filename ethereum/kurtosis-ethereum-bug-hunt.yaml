@@ -498,7 +498,6 @@ tasks:
           type: string
   render_report:
     needs: [hunt]
-    selection: {skills: [writing]}
     run: render-kurtosis-ethereum-bug-hunt-report
     quality-gate: "${{ has(result.summary) && size(result.summary) > 0 }}"
     instructions: |-

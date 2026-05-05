@@ -92,19 +92,7 @@ inputs:
 tasks:
   review:
     selection:
-      capabilities: [reasoning]
-      match: >-
-        (!has(inputs.persona.requires_tools) || inputs.persona.requires_tools != true || 'tool-use' in capabilities)
-        && (
-          (has(inputs.provider_override) && inputs.provider_override != '')
-            ? inputs.provider_override in providers
-            : (!has(inputs.persona.provider) || inputs.persona.provider == '' || inputs.persona.provider in providers)
-        )
-        && (
-          (has(inputs.model_override) && inputs.model_override != '')
-            ? inputs.model_override in models
-            : (!has(inputs.persona.model) || inputs.persona.model == '' || inputs.persona.model in models)
-        )
+      capabilities: [reasoning, tool-use]
     run: persona-code-review
     quality-gate: "${{ result.score >= 0 && result.score <= 100 && has(result.verdict) && (result.verdict == 'pass' || result.verdict == 'fail') && has(result.findings) && has(result.reasoning) && size(result.reasoning) > 0 }}"
     instructions: |
