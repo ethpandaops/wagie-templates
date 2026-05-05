@@ -155,7 +155,7 @@ tasks:
         if: "${{ tasks.review.outputs.verdict != 'approve' }}"
         selection: {skills: [coding]}
         run: apply-review-fixes
-        quality-gate: "${{ has(result.revised_code) && size(result.revised_code) > 0 }}"
+        quality-gate: "${{ has(result.fixes_applied) }}"
         instructions: |
           You are a skilled developer addressing code review findings.
 
@@ -189,7 +189,6 @@ tasks:
           dismissed_findings: "${{ inputs.dismissed_findings }}"
           prev_verification_passed: "${{ inputs.prev_verification_passed }}"
         outputs:
-          revised_code: "${{ result.revised_code }}"
           fixes_applied: "${{ result.fixes_applied }}"
           false_positives: "${{ result.false_positives }}"
           schema:

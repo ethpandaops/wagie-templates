@@ -315,7 +315,6 @@ tasks:
       public_endpoints: ${{ tasks.inspect_enclave.outputs.public_endpoints }}
       suggested_next_commands: "${{ has(tasks.observe_network.outputs.recommended_actions) && size(tasks.observe_network.outputs.recommended_actions) > 0 ? tasks.observe_network.outputs.recommended_actions : tasks.inspect_enclave.outputs.suggested_next_commands }}"
     outputs:
-      summary: ${{ result.summary }}
       schema:
         summary:
           kind: artifact

@@ -42,7 +42,6 @@ tasks:
       enclave_name: ${{ inputs.enclave_name }}
       file_name: ${{ inputs.file_name }}
     outputs:
-      file: ${{ result.file }}
       summary: "${{ has(result.summary) ? result.summary : '' }}"
       schema:
         file:

@@ -153,7 +153,7 @@ tasks:
         if: "${{ tasks.critic.outputs.approved != true }}"
         selection: {skills: [coding]}
         run: adversarial-code-actor
-        quality-gate: "${{ has(result.revised_code) && size(result.revised_code) > 0 }}"
+        quality-gate: "${{ has(result.fixes_applied) }}"
         instructions: |
           You are an optimistic, skilled developer responding to an
           adversarial review. The critic is paranoid by design — take their
@@ -182,7 +182,6 @@ tasks:
           context: "${{ inputs.context }}"
           dismissed_findings: "${{ inputs.dismissed_findings }}"
         outputs:
-          revised_code: "${{ result.revised_code }}"
           fixes_applied: "${{ result.fixes_applied }}"
           false_positives: "${{ result.false_positives }}"
           schema:

@@ -500,7 +500,7 @@ tasks:
     needs: [hunt]
     selection: {skills: [writing]}
     run: render-kurtosis-ethereum-bug-hunt-report
-    quality-gate: "${{ has(result.report) && size(result.report) > 0 && has(result.summary) && size(result.summary) > 0 }}"
+    quality-gate: "${{ has(result.summary) && size(result.summary) > 0 }}"
     instructions: |-
       Render a concise markdown bug-hunt report from the accumulated
       findings and convergence state.
@@ -536,7 +536,6 @@ tasks:
       iterations_used: ${{ tasks.hunt.outputs.rounds_completed }}
       converged: "${{ tasks.hunt.loop.converged }}"
     outputs:
-      report: "${{ result.report }}"
       summary: "${{ result.summary }}"
       recommended_actions: "${{ has(result.recommended_actions) ? result.recommended_actions : [] }}"
       schema:

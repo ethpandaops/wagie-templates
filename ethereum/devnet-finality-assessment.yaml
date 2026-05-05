@@ -173,7 +173,6 @@ tasks:
       finality_broke_epoch: "${{ has(result.finality_broke_epoch) ? result.finality_broke_epoch : -1 }}"
       participation_trend: "${{ has(result.participation_trend) ? result.participation_trend : 'unknown' }}"
       evidence: "${{ has(result.evidence) ? result.evidence : [] }}"
-      report: "${{ has(result.report) ? result.report : '' }}"
       finality_checkpoints: "${{ has(result.finality_checkpoints) ? result.finality_checkpoints : [] }}"
       participation_by_epoch: "${{ has(result.participation_by_epoch) ? result.participation_by_epoch : [] }}"
       schema:

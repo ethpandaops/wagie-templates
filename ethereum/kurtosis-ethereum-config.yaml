@@ -138,7 +138,6 @@ tasks:
       image_hint: "${{ has(inputs.image_hint) ? inputs.image_hint : '' }}"
       client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
     outputs:
-      config: ${{ result.config }}
       config_summary: ${{ result.config_summary }}
       inferred_features: "${{ has(result.inferred_features) ? result.inferred_features : [] }}"
       effective_client_pairs: "${{ has(result.effective_client_pairs) ? result.effective_client_pairs : [] }}"
