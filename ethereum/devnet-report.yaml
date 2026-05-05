@@ -165,7 +165,6 @@ tasks:
       log_examples: ${{ inputs.log_examples }}
       recommended_actions: ${{ inputs.recommended_actions }}
     outputs:
-      report: ${{ result.report }}
       schema:
         report:
           kind: artifact

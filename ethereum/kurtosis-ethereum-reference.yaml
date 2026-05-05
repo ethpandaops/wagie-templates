@@ -58,7 +58,6 @@ tasks:
       query: "${{ has(inputs.query) ? inputs.query : '' }}"
       package_ref: ${{ inputs.package_ref }}
     outputs:
-      reference: ${{ result.reference }}
       reference_summary: "${{ has(result.reference_summary) ? result.reference_summary : '' }}"
       extracted_items: "${{ has(result.extracted_items) ? result.extracted_items : [] }}"
       schema:

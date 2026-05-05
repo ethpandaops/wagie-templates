@@ -481,7 +481,7 @@ tasks:
         max-delay: 20s
         jitter: true
       timeout: 1h
-    quality-gate: "${{ has(result.summary) && size(result.summary) > 100 && has(result.severity) && size(result.severity) > 0 }}"
+    quality-gate: "${{ has(result.severity) && size(result.severity) > 0 }}"
     instructions: |-
       Produce an operator-ready devnet debug summary.
 
@@ -511,7 +511,6 @@ tasks:
       verification_summary: "${{ has(tasks.verify_findings.outputs.verification_summary) ? tasks.verify_findings.outputs.verification_summary : '' }}"
       verification_issues: "${{ has(tasks.verify_findings.outputs.issues) ? tasks.verify_findings.outputs.issues : [] }}"
     outputs:
-      summary: ${{ result.summary }}
       severity: "${{ has(result.severity) ? result.severity : 'medium' }}"
       schema:
         summary:

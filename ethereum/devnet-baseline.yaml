@@ -311,7 +311,6 @@ tasks:
       affected_instances: "${{ has(result.affected_instances) ? result.affected_instances : [] }}"
       baseline_evidence: "${{ has(result.baseline_evidence) ? result.baseline_evidence : [] }}"
       instance_reports: "${{ has(result.instance_reports) ? result.instance_reports : [] }}"
-      report: "${{ has(result.report) ? result.report : '' }}"
       fork_data: "${{ has(result.fork_data) ? result.fork_data : {} }}"
       validator_activity: "${{ has(result.validator_activity) ? result.validator_activity : [] }}"
       epoch_snapshots: "${{ has(result.epoch_snapshots) ? result.epoch_snapshots : [] }}"

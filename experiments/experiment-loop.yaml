@@ -568,7 +568,7 @@ tasks:
             max-delay: 1m
             jitter: true
           timeout: 1h
-        quality-gate: "${{ has(result.summary) && size(result.summary) > 0 && has(result.result_branch_url) && size(result.result_branch_url) > 0 && has(result.experiment_log_artifact) && has(result.progress_report) && has(result.exit_reason) && size(result.exit_reason) > 0 }}"
+        quality-gate: "${{ has(result.result_branch_url) && size(result.result_branch_url) > 0 && has(result.exit_reason) && size(result.exit_reason) > 0 }}"
         instructions: |-
           Before anything else, `cd` into `workspace_path`. The git push and any commands in this task run relative to that directory.
 
@@ -629,10 +629,7 @@ tasks:
           plateau_patience: ${{ inputs.plateau_patience }}
           max_iterations: ${{ inputs.max_iterations }}
         outputs:
-          summary: ${{ result.summary }}
           result_branch_url: ${{ result.result_branch_url }}
-          experiment_log_artifact: ${{ result.experiment_log_artifact }}
-          progress_report: ${{ result.progress_report }}
           exit_reason: ${{ result.exit_reason }}
           schema:
             summary:

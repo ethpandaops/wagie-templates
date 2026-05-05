@@ -69,7 +69,6 @@ tasks:
       target_repo: "${{ has(inputs.target_repo) ? inputs.target_repo : '' }}"
       target_ref: "${{ has(inputs.target_ref) ? inputs.target_ref : '' }}"
     outputs:
-      diff: "${{ result.diff }}"
       files_changed: "${{ result.files_changed }}"
       insertions: "${{ result.insertions }}"
       deletions: "${{ result.deletions }}"

@@ -152,7 +152,6 @@ tasks:
     outputs:
       resolved_network_name: ${{ inputs.devnet_name }}
       resolved_network_group: ""
-      config: ${{ result.config }}
       config_summary: ${{ result.config_summary }}
       assumptions: "${{ has(result.assumptions) ? result.assumptions : [] }}"
       effective_client_pairs: "${{ has(result.effective_client_pairs) ? result.effective_client_pairs : [] }}"
