@@ -10,15 +10,8 @@ description: >-
   Use when a workflow needs a shareable Ethereum devnet report; renders structured outputs (from baseline, debug, or finality assessment) into concise markdown for operators and stakeholders. Works for both incident reports and routine status reports.
 tags: ["devnet", "ethereum", "ethpandaops", "reporting", "status", "incident"]
 defaults:
-  retry:
-    max: 1
-    on: [error, timeout, schema-validation, quality-gate]
-    backoff:
-      delay: 5s
-      factor: 2
-      max-delay: 20s
-      jitter: true
-    timeout: 1h
+  retryable: true
+  timeout: 1h
 inputs:
   network_name:
     type: string

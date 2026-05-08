@@ -10,15 +10,8 @@ description: >-
   Use when accumulated research needs a structured coverage decision; scores breadth, depth, balance, and conflict resolution, then returns sufficiency state, prioritized gaps, and information gain signal.
 tags: ["research", "evaluation", "coverage"]
 defaults:
-  retry:
-    max: 1
-    on: [error, timeout, schema-validation, quality-gate]
-    backoff:
-      delay: 5s
-      factor: 2
-      max-delay: 20s
-      jitter: true
-    timeout: 1h
+  retryable: true
+  timeout: 1h
 inputs:
   topic:
     type: string

@@ -10,15 +10,8 @@ description: >-
   Use when iteratively tuning any git-tracked artifact in a repo against a scalar metric. Caller only needs to provide `repo_url`, `goal`, and `result_branch`; the setup task clones the repo, discovers or scaffolds the missing pieces (target files, setup command, benchmark, correctness command, metric name) from the goal and repo conventions, then the loop proposes → applies → checks → measures → keeps-or-reverts greedily until a patience window of no-improvement or max iterations. Works for code performance, SQL queries, prompts, configs, ML training loops, Docker image size, or any repo that can emit a scalar from a shell command. Any of the discovered parameters can be overridden by the caller when they are known up front.
 tags: ["experiment", "optimization", "hillclimb", "benchmark", "autonomous", "autoresearch", "metric"]
 defaults:
-  retry:
-    max: 1
-    on: [error, timeout, schema-validation, quality-gate]
-    backoff:
-      delay: 10s
-      factor: 2
-      max-delay: 1m
-      jitter: true
-    timeout: 1h
+  retryable: true
+  timeout: 1h
 inputs:
   repo_url:
     type: string
@@ -111,15 +104,8 @@ tasks:
       setup:
         selection: {capabilities: [reasoning, tool-use]}
         run: discover-and-setup-experiment
-        retry:
-          max: 1
-          on: [error, timeout, schema-validation, quality-gate]
-          backoff:
-            delay: 30s
-            factor: 2
-            max-delay: 5m
-            jitter: true
-          timeout: 1h
+        retryable: true
+        timeout: 1h
         quality-gate: "${{ has(result.baseline_metric) && has(result.baseline_commit) && size(result.baseline_commit) > 0 && has(result.workspace_path) && size(result.workspace_path) > 0 && has(result.effective_target_files) && size(result.effective_target_files) > 0 && has(result.effective_experiment_command) && size(result.effective_experiment_command) > 0 && has(result.effective_metric_name) && size(result.effective_metric_name) > 0 }}"
         instructions: |-
           Prepare a clean scratch workspace AND resolve all missing experiment parameters from the repo itself. Leadership only knows the repo URL and the goal; you have the cloned code, so you own discovery. The scaffolded benchmark *is* the scoring contract for the entire run — a sloppy bench will produce a meaningless run no matter how good the proposer is. Treat this task as the most important one in the loop.
@@ -559,15 +545,8 @@ tasks:
         needs: [hunt]
         selection: {capabilities: [tool-use, reasoning]}
         run: finalize-experiment-run
-        retry:
-          max: 1
-          on: [error, timeout, schema-validation, quality-gate]
-          backoff:
-            delay: 10s
-            factor: 2
-            max-delay: 1m
-            jitter: true
-          timeout: 1h
+        retryable: true
+        timeout: 1h
         quality-gate: "${{ has(result.result_branch_url) && size(result.result_branch_url) > 0 && has(result.exit_reason) && size(result.exit_reason) > 0 }}"
         instructions: |-
           Before anything else, `cd` into `workspace_path`. The git push and any commands in this task run relative to that directory.

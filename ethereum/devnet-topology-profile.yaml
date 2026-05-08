@@ -10,15 +10,8 @@ description: >-
   Use when a config workflow needs a minimal participant topology derived from devnet notes and explicit hints; returns representative client pairs and config-relevant assumptions only.
 tags: ["devnet", "ethereum", "configuration"]
 defaults:
-  retry:
-    max: 1
-    on: [error, timeout, schema-validation, quality-gate]
-    backoff:
-      delay: 5s
-      factor: 2
-      max-delay: 20s
-      jitter: true
-    timeout: 1h
+  retryable: true
+  timeout: 1h
 inputs:
   devnet_name:
     type: string

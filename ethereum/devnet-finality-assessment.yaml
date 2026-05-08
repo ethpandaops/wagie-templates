@@ -10,15 +10,8 @@ description: >-
   Use when a workflow needs a structured Ethereum devnet finality assessment; gathers finality observations and classifies the current finality state.
 tags: ["devnet", "ethereum", "ethpandaops", "finality"]
 defaults:
-  retry:
-    max: 1
-    on: [error, timeout, schema-validation, quality-gate]
-    backoff:
-      delay: 5s
-      factor: 2
-      max-delay: 20s
-      jitter: true
-    timeout: 1h
+  retryable: true
+  timeout: 1h
 inputs:
   network_name:
     type: string

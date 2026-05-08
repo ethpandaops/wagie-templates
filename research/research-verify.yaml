@@ -10,15 +10,8 @@ description: >-
   Use when accumulated research findings need adversarial verification; probes for missing perspectives, checks evidence-claim alignment, and calibrates confidence.
 tags: ["research", "verification", "adversarial"]
 defaults:
-  retry:
-    max: 1
-    on: [error, timeout, schema-validation, quality-gate]
-    backoff:
-      delay: 5s
-      factor: 2
-      max-delay: 20s
-      jitter: true
-    timeout: 1h
+  retryable: true
+  timeout: 1h
 inputs:
   topic:
     type: string
