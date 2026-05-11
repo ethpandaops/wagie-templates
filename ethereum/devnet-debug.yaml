@@ -110,15 +110,8 @@ tasks:
     if: ${{ tasks.baseline.outputs.has_finality_issues == true }}
     selection: {capabilities: [reasoning, tool-use]}
     run: analyze-finality-causes
-    retry:
-      max: 1
-      on: [error, timeout, schema-validation, quality-gate]
-      backoff:
-        delay: 10s
-        factor: 2
-        max-delay: 30s
-        jitter: true
-      timeout: 1h
+    retryable: true
+    timeout: 1h
     quality-gate: "${{ has(result.likely_causes) && size(result.likely_causes) > 0 && has(result.primary_cause) && size(result.primary_cause) > 0 && has(result.recommended_actions) && size(result.recommended_actions) > 0 }}"
     instructions: |-
       Analyze the most likely causes of the finality problem. You have finality assessment
@@ -259,15 +252,8 @@ tasks:
     if: ${{ tasks.baseline.outputs.has_finality_issues != true }}
     selection: {capabilities: [reasoning, tool-use]}
     run: investigate-devnet-incident
-    retry:
-      max: 1
-      on: [error, timeout, schema-validation, quality-gate]
-      backoff:
-        delay: 10s
-        factor: 2
-        max-delay: 30s
-        jitter: true
-      timeout: 1h
+    retryable: true
+    timeout: 1h
     quality-gate: "${{ has(result.findings_summary) && size(result.findings_summary) > 0 && has(result.suspected_root_cause) && size(result.suspected_root_cause) > 0 }}"
     instructions: |-
       Investigate the devnet issue using the baseline observations and available data surfaces.
@@ -415,15 +401,8 @@ tasks:
     needs: [context, baseline, assess_finality, analyze_finality_causes, investigate_generic]
     selection: {capabilities: [reasoning]}
     run: verify-devnet-findings
-    retry:
-      max: 1
-      on: [error, timeout, schema-validation, quality-gate]
-      backoff:
-        delay: 5s
-        factor: 2
-        max-delay: 20s
-        jitter: true
-      timeout: 1h
+    retryable: true
+    timeout: 1h
     quality-gate: "${{ has(result.verification_summary) && size(result.verification_summary) > 0 && has(result.issues) }}"
     instructions: |-
       Audit the investigation findings before they reach the operator.
@@ -472,15 +451,8 @@ tasks:
     needs: [context, baseline, assess_finality, analyze_finality_causes, investigate_generic, verify_findings]
     selection: {capabilities: [reasoning]}
     run: summarize-devnet-debug
-    retry:
-      max: 1
-      on: [error, timeout, schema-validation, quality-gate]
-      backoff:
-        delay: 5s
-        factor: 2
-        max-delay: 20s
-        jitter: true
-      timeout: 1h
+    retryable: true
+    timeout: 1h
     quality-gate: "${{ has(result.severity) && size(result.severity) > 0 }}"
     instructions: |-
       Produce an operator-ready devnet debug summary.

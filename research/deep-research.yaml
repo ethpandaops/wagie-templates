@@ -10,15 +10,8 @@ description: >-
   Use when a topic requires structured, iterative research; decomposes via perspective-driven planning, accumulates typed findings across iterations, assesses coverage with a structured rubric, and verifies results adversarially before output.
 tags: ["research", "iterative", "deep-research"]
 defaults:
-  retry:
-    max: 1
-    on: [error, timeout, schema-validation, quality-gate]
-    backoff:
-      delay: 5s
-      factor: 2
-      max-delay: 20s
-      jitter: true
-    timeout: 1h
+  retryable: true
+  timeout: 1h
 inputs:
   topic:
     type: string

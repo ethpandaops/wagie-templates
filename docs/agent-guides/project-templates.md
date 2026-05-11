@@ -138,9 +138,10 @@ Output rules:
 
 For `run` tasks:
 
-- use `worker.match` only when routing matters
+- use `selection.labels` only when the task should constrain router rule matching
+- use `selection.capabilities` only when the provider/model must support a concrete runtime ability
 - add `quality-gate` when malformed or empty output would poison downstream steps
-- add `retry` for plausible transient failure
+- add `retryable: true` for plausible transient failure; attempts and backoff are router-owned
 - add `timeout` when runtime should be bounded
 - write instructions that constrain the worker to the exact contract you need
 

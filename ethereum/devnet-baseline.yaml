@@ -10,15 +10,8 @@ description: >-
   Use when a workflow needs an Ethereum devnet health assessment; checks fork status, participation, missed slots, node sync, and validator activity, then classifies the network state. Works for both routine status checks and incident triage.
 tags: ["devnet", "ethereum", "ethpandaops", "debugging", "status", "health", "baseline"]
 defaults:
-  retry:
-    max: 1
-    on: [error, timeout, schema-validation, quality-gate]
-    backoff:
-      delay: 5s
-      factor: 2
-      max-delay: 20s
-      jitter: true
-    timeout: 1h
+  retryable: true
+  timeout: 1h
 inputs:
   problem_statement:
     type: string

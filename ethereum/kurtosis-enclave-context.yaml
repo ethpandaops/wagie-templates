@@ -10,15 +10,8 @@ description: >-
   Use when a workflow needs normalized Kurtosis enclave context; inspects enclave state, services, and reachable endpoints for follow-on debugging or validation.
 tags: ["kurtosis", "ethereum", "ethpandaops", "context"]
 defaults:
-  retry:
-    max: 2
-    on: [error, timeout, schema-validation, quality-gate]
-    backoff:
-      delay: 5s
-      factor: 2
-      max-delay: 30s
-      jitter: true
-    timeout: 1h
+  retryable: true
+  timeout: 1h
 inputs:
   enclave_name:
     type: string

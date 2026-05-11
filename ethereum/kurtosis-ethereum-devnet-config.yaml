@@ -107,15 +107,8 @@ tasks:
     needs: [devnet_notes, topology_profile, package_reference]
     selection: {capabilities: [reasoning]}
     run: derive-kurtosis-ethereum-devnet-config
-    retry:
-      max: 2
-      on: [error, timeout, schema-validation, quality-gate]
-      backoff:
-        delay: 10s
-        factor: 2
-        max-delay: 1m
-        jitter: true
-      timeout: 1h
+    retryable: true
+    timeout: 1h
     quality-gate: "${{ has(result.config_summary) && size(result.config_summary) > 0 }}"
     instructions: |-
       Derive a minimal ethereum-package configuration from the resolved devnet context.

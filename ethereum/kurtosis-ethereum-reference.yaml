@@ -10,15 +10,8 @@ description: >-
   Use when a workflow needs targeted ethereum-package reference material; retrieves the specific config, client, service, fork, or example information needed for a Kurtosis task.
 tags: ["kurtosis", "ethereum", "ethpandaops", "reference"]
 defaults:
-  retry:
-    max: 2
-    on: [error, timeout, schema-validation, quality-gate]
-    backoff:
-      delay: 5s
-      factor: 2
-      max-delay: 30s
-      jitter: true
-    timeout: 1h
+  retryable: true
+  timeout: 1h
 inputs:
   section:
     type: string
