@@ -1,8 +1,8 @@
 module github.com/ethpandaops/wagie-templates
 
-go 1.26.2
+go 1.26.3
 
-require github.com/ethpandaops/wagie v0.0.60
+require github.com/ethpandaops/wagie v0.0.61
 
 require (
 	cel.dev/expr v0.25.1 // indirect
@@ -138,8 +138,8 @@ require (
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90 // indirect
-	golang.org/x/image v0.38.0 // indirect
-	golang.org/x/net v0.52.0 // indirect
+	golang.org/x/image v0.39.0 // indirect
+	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
