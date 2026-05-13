@@ -27,7 +27,9 @@ The repo uses shallow root-level families:
 
 - `ethereum/`
 - `code/`
+- `ci/`
 - `research/`
+- `experiments/`
 
 Place templates by the domain that owns their meaning, not by incidental tooling.
 
@@ -35,7 +37,9 @@ Examples:
 
 - a devnet-to-Kurtosis repro workflow still belongs in `ethereum/`
 - a code-review pipeline belongs in `code/`
+- a GitHub Actions failure-state or issue-state primitive belongs in `ci/`
 - iterative finding accumulation belongs in `research/`
+- metric-driven artifact improvement loops belong in `experiments/`
 
 Do not add an extra `templates/` wrapper. Do not create deep category trees unless the repo grows enough to justify them.
 
@@ -139,7 +143,7 @@ Output rules:
 For `run` tasks:
 
 - use `selection.labels` only when the task should constrain router rule matching
-- use `selection.capabilities` only when the provider/model must support a concrete runtime ability
+- use `selection.capabilities` only when the worker must support a concrete runtime ability
 - add `quality-gate` when malformed or empty output would poison downstream steps
 - add `retryable: true` for plausible transient failure; attempts and backoff are router-owned
 - add `timeout` when runtime should be bounded
@@ -162,6 +166,27 @@ Avoid:
 - repeating output format instructions or JSON shape requirements that are already declared in `outputs.schema`
 
 The schema is the source of truth for outputs. Keep prompts aligned with it, but do not duplicate it.
+
+### Agent-Agnostic Instructions
+
+Templates run on isolated workers. Write instructions for a generic worker, not for a specific product UI or agent brand.
+
+Prefer:
+
+- treating declared inputs, mapped task outputs, and declared artifacts as the complete task context
+- saying which side effects are allowed before procedural steps, especially for `gh`, git, Kurtosis, Docker, or networked tools
+- using positive, verifiable instructions: what to inspect, what to emit, and what evidence changes the decision
+- separating facts, inferences, decisions, and limitations in investigation prompts
+- asking for evidence-grounded conclusions rather than chain-of-thought or hidden reasoning
+- using examples only as examples; make clear they are not exhaustive routing rules
+
+Avoid:
+
+- product-specific tool names or UI modes inside reusable templates
+- assuming shared memory between tasks beyond explicit inputs, outputs, artifacts, or durable external state
+- embedding one past incident as a permanent rule when a generic discovery instruction would catch the same class of failure
+- long walls of `MUST`/`Never` rules for reasoning behavior; reserve hard language for safety, side effects, and output invariants
+- comments about legacy output shapes after a hard cutover
 
 For composed tasks:
 

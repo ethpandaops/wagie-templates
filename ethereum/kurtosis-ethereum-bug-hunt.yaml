@@ -1,7 +1,7 @@
 kind: Template
 schemaVersion: wagie/v1
 id: io.ethpandaops/kurtosis-ethereum-bug-hunt
-version: "1.1.0"
+version: "1.0.0"
 license: MIT
 authors: [savid]
 homepage: https://github.com/ethpandaops/wagie-templates
@@ -39,6 +39,14 @@ inputs:
     schema:
       type: string
       enum: [minimal, devnet-profile]
+  config_source:
+    type: string
+    default: design
+    description: >-
+      Forwarded to the inner lifecycle. `design` (default) generates config via `kurtosis-ethereum-config`. `existing-enclave` skips config design and inspects an already-running enclave, synthesizing `config_summary` and `effective_client_pairs` from observed services - use when the enclave was launched by an upstream step (e.g. `assertoor-ci-kurtosis-reproduce`).
+    schema:
+      type: string
+      enum: [design, existing-enclave]
   devnet_name:
     type: string
     description: Existing devnet or devnet-group name to model when `config_mode` is `devnet-profile`
@@ -87,6 +95,69 @@ inputs:
     type: number
     default: 3
     description: Maximum bug-hunt probe rounds before returning the best accumulated result
+  min_iterations:
+    type: number
+    default: 2
+    description: Minimum probe rounds before convergence is allowed. Guards against premature exit when the first round looks decisive but might be wrong. Set to 1 to allow single-round convergence.
+  stop_on_sufficient:
+    type: boolean
+    default: true
+    description: When true, the loop may stop after min_iterations once assess_progress marks completeness sufficient. Set false when a caller wants extra attribution rounds even after the symptom is understood.
+  prior_summary:
+    type: string
+    default: ""
+    description: Optional prior AI summary or hypothesis (e.g. from upstream CI triage). When non-empty, the first probe round validates this hypothesis against live network evidence rather than starting broad.
+  test_context:
+    type: string
+    default: ""
+    description: Optional summary of the test that produced the observed failure (assertions, thresholds, key task dependencies, prior known-flaky history). When provided, helps probe rounds distinguish "test config too strict" from "actual bug."
+  regression_window:
+    type: object
+    description: Optional structured last-known-good comparison from a previous-success baseline. Used as factual change context, not as proof of root cause.
+    schema:
+      type: object
+      properties:
+        baseline_found:
+          type: boolean
+        baseline_summary:
+          type: string
+        changed_components:
+          type: array
+          items:
+            type: object
+            properties:
+              component:
+                type: string
+              service_name:
+                type: string
+              role:
+                type: string
+              evidence:
+                type: string
+        unresolved_components:
+          type: array
+          items:
+            type: object
+            properties:
+              component:
+                type: string
+              service_name:
+                type: string
+              reason:
+                type: string
+        target_ranking:
+          type: array
+          items:
+            type: object
+            properties:
+              component:
+                type: string
+              service_name:
+                type: string
+              reason:
+                type: string
+              confidence:
+                type: number
   launch:
     type: boolean
     default: true
@@ -106,10 +177,11 @@ tasks:
       example_hint: "${{ inputs.?example_hint }}"
       package_ref: ${{ inputs.package_ref }}
       config_mode: ${{ inputs.config_mode }}
+      config_source: ${{ inputs.config_source }}
       devnet_name: "${{ inputs.?devnet_name }}"
       client_type: "${{ inputs.?client_type }}"
       image_hint: "${{ inputs.?image_hint }}"
-      client_pairs: "${{ inputs.?client_pairs }}"
+      client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
       launch: ${{ inputs.launch }}
       auto_cleanup: false
     outputs:
@@ -136,8 +208,9 @@ tasks:
         rounds_completed: "${{ 0 }}"
         completeness: "${{ 'insufficient' }}"
         information_gain: "${{ 'high' }}"
+        diminishing_streak: "${{ 0 }}"
         iteration_log: "${{ '' }}"
-      until: "${{ loop.completeness == 'sufficient' || loop.information_gain == 'diminishing' }}"
+      until: "${{ loop.rounds_completed >= inputs.min_iterations && ((inputs.stop_on_sufficient == true && loop.completeness == 'sufficient') || loop.diminishing_streak >= 2) }}"
       on-max-exhausted: continue
     inputs:
       enclave_name: ${{ inputs.enclave_name }}
@@ -148,12 +221,17 @@ tasks:
       status_summary: ${{ tasks.lifecycle.outputs.status_summary }}
       service_names: ${{ tasks.lifecycle.outputs.service_names }}
       public_endpoints: ${{ tasks.lifecycle.outputs.public_endpoints }}
+      prior_summary: ${{ inputs.prior_summary }}
+      test_context: ${{ inputs.test_context }}
+      regression_window: "${{ has(inputs.regression_window) ? inputs.regression_window : {} }}"
       previous_findings: "${{ loop.findings }}"
       previous_gaps: "${{ loop.gaps }}"
       previous_gap_count: "${{ loop.gap_count }}"
       previous_findings_count: "${{ loop.findings_count }}"
       previous_rounds_completed: "${{ loop.rounds_completed }}"
+      previous_diminishing_streak: "${{ loop.diminishing_streak }}"
       previous_log: "${{ loop.iteration_log }}"
+      min_iterations: ${{ inputs.min_iterations }}
     tasks:
       probe_round:
         selection: {capabilities: [reasoning, tool-use]}
@@ -168,20 +246,36 @@ tasks:
           Use the `panda` CLI and MCP tools for network analysis when available.
 
           Strategy:
-          - If `previous_findings` is empty, start broad: establish a baseline
-            for service health, consensus progress, finality, fork agreement,
-            sync state, and obvious log anomalies.
+          - If `previous_findings` is empty AND `prior_summary` is non-empty,
+            treat the prior summary as a strong hypothesis. Round 1 should
+            attempt to confirm or refute it with concrete evidence from the
+            live enclave, not start broad. Record the validated finding (or
+            its refutation) explicitly.
+          - If `previous_findings` is empty AND `prior_summary` is empty,
+            start broad: establish a baseline for service health, consensus
+            progress, finality, fork agreement, sync state, and obvious log
+            anomalies.
           - If `gaps` are present, prioritize the highest-value unresolved
             questions first and use targeted checks to confirm, refute, or
             sharpen prior hypotheses.
           - Do not repeat already-established findings unless you are materially
             upgrading them with stronger evidence or refuting them.
+          - When `regression_window` is present, use it as change context:
+            prioritize changed or unresolved components that also emitted
+            concrete errors, but do not treat a changed image/commit as proof
+            without live evidence.
 
           Evidence rules:
           - Every finding must cite concrete evidence from this round.
           - Reference specific commands, endpoints, log excerpts, or observed
             service states rather than generic statements.
           - Prefer a small number of substantive findings over a long weak list.
+
+          Null-hypothesis discipline (read before every round):
+          - The default assumption is that the system under test (the clients) is at fault. Your job is to identify WHICH client and HOW. Refute that assumption only with concrete code/RPC/log evidence — not with absence of client-side evidence.
+          - When `test_context` is non-empty, treat it as a NEUTRAL DESCRIPTION of what the test contract is. It exists so you can distinguish "test contract was violated by the system under test" from "test contract was met." It is NOT an invitation to argue "the test threshold is too strict" or "the test asserts something unreasonable." Such conclusions require affirmative evidence: a specific test assertion contradicting ethereum protocol spec or canonical client documentation. "Seems strict for a small devnet" is not evidence.
+          - When client behaviour appears correct under your probes, your finding should be that THIS specific client is fine — not that the test/framework/config must be at fault. Other clients in the matrix may still be the problem.
+          - If you cannot localise the problem to any specific client after thorough probing, return that explicitly as a `suggested_gap` ("which client is failing the contract?") — do NOT shift the hypothesis to test/framework/config without affirmative evidence.
 
           For each finding:
           - Set severity as critical, high, medium, or low.
@@ -198,6 +292,8 @@ tasks:
           enclave_name: ${{ inputs.enclave_name }}
           goal: ${{ inputs.goal }}
           hunt_focus: ${{ inputs.hunt_focus }}
+          prior_summary: "${{ has(inputs.prior_summary) ? inputs.prior_summary : '' }}"
+          test_context: "${{ has(inputs.test_context) ? inputs.test_context : '' }}"
           config_summary: "${{ has(inputs.config_summary) ? inputs.config_summary : '' }}"
           launch_summary: "${{ has(inputs.launch_summary) ? inputs.launch_summary : '' }}"
           status_summary: "${{ has(inputs.status_summary) ? inputs.status_summary : '' }}"
@@ -205,6 +301,7 @@ tasks:
           public_endpoints: ${{ inputs.public_endpoints }}
           previous_findings: ${{ inputs.previous_findings }}
           gaps: ${{ inputs.previous_gaps }}
+          regression_window: "${{ has(inputs.regression_window) ? inputs.regression_window : {} }}"
         outputs:
           findings: "${{ has(result.findings) ? result.findings : [] }}"
           summary: "${{ result.summary }}"
@@ -418,6 +515,7 @@ tasks:
       rounds_completed: "${{ inputs.previous_rounds_completed + 1 }}"
       completeness: "${{ tasks.assess_progress.outputs.completeness }}"
       information_gain: "${{ tasks.assess_progress.outputs.information_gain }}"
+      diminishing_streak: "${{ tasks.assess_progress.outputs.information_gain == 'diminishing' ? inputs.previous_diminishing_streak + 1 : 0 }}"
       summary: "${{ tasks.assess_progress.outputs.summary }}"
       iteration_log: '${{ inputs.previous_log + "\n" + tasks.log_iteration.outputs.iteration_summary }}'
       schema:
@@ -478,6 +576,9 @@ tasks:
         information_gain:
           type: string
           enum: [high, moderate, diminishing]
+        diminishing_streak:
+          type: number
+          description: Consecutive rounds where information_gain has been "diminishing"; the loop exits when this reaches 2 (and min_iterations has been met).
         summary:
           type: string
         iteration_log:

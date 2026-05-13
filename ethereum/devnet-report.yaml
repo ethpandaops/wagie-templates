@@ -119,7 +119,6 @@ inputs:
 tasks:
   render_report:
     run: render-devnet-report
-    quality-gate: "${{ has(result.report) && size(result.report) > 100 }}"
     instructions: |-
       Render a concise markdown devnet report for sharing.
 

@@ -1,0 +1,147 @@
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/ci-investigate-worklist
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
+description: >-
+  Use after ci-investigate issue state-check to decide which fingerprint clusters should be investigated, recurrence-updated without expensive worker placement, or left alone because they are already recorded or another run owns a pending issue.
+tags: ["ci", "ci-investigate", "worklist", "dedup", "idempotency"]
+defaults:
+  retryable: true
+  timeout: 15m
+inputs:
+  statuses:
+    type: array
+    required: true
+    description: State-check statuses aligned to caller cluster indexes.
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          fingerprint:
+            type: string
+          status:
+            type: string
+          issue_number:
+            type: number
+          issue_url:
+            type: string
+          marker_state:
+            type: string
+          first_seen_run:
+            type: string
+          last_seen_run:
+            type: string
+          last_seen_at:
+            type: string
+          last_investigated_run:
+            type: string
+          last_investigated_at:
+            type: string
+        required: [fingerprint, status]
+  current_run_id:
+    type: string
+    required: true
+    description: Current failing CI run id; used to suppress same-run complete recurrences and allow same-run resume of pending reservations.
+tasks:
+  plan:
+    selection:
+      capabilities: [reasoning]
+    run: ci-investigate-worklist
+    quality-gate: "${{ has(result.items) && has(result.recurrence_items) && has(result.skipped_items) }}"
+    instructions: |-
+      Build the ci-investigate worklist from issue state-check results. Preserve input order and use the input array index as `cluster_index`.
+
+      Policy:
+      - `new` and `covered-stale` are actionable: include an item with `action="investigate"`.
+      - `covered-complete` is recurrence-only unless the existing issue already records this exact run. If `current_run_id` is non-empty and either `last_seen_run == current_run_id` or `first_seen_run == current_run_id`, add a `skipped_items` entry with `action="skipped"` and reason `existing complete issue already records this run`; do not emit a recurrence item. Otherwise include a `recurrence_items` entry with `action="recurrence"`. Do not put recurrence-only entries in `items`; downstream should update markers/recurrence without consuming expensive investigation worker placement.
+      - `covered-pending` is blocked by default because another run may be investigating it. Skip it unless the existing issue's `first_seen_run` or `last_seen_run` equals `current_run_id`; in that same-run case include an item with `action="resume"`.
+      - Any unknown status is skipped with a reason.
+
+      Return:
+      - `items`: investigation/resume entries, each `{cluster_index, fingerprint, action, state_check_status, issue_number, issue_url, reason}`.
+      - `recurrence_items`: recurrence-only entries, each `{cluster_index, fingerprint, action, state_check_status, issue_number, issue_url, reason}`.
+      - `skipped_items`: skipped entries, each with the same keys and a useful `reason`.
+      - `summary`: one concise sentence with counts by action.
+    inputs:
+      statuses: ${{ inputs.statuses }}
+      current_run_id: ${{ inputs.current_run_id }}
+    outputs:
+      items: "${{ result.items }}"
+      recurrence_items: "${{ result.recurrence_items }}"
+      skipped_items: "${{ result.skipped_items }}"
+      summary: "${{ has(result.summary) ? result.summary : '' }}"
+      schema:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              cluster_index:
+                type: number
+              fingerprint:
+                type: string
+              action:
+                type: string
+                enum: [investigate, resume]
+              state_check_status:
+                type: string
+              issue_number:
+                type: number
+              issue_url:
+                type: string
+              reason:
+                type: string
+            required: [cluster_index, fingerprint, action, state_check_status]
+        recurrence_items:
+          type: array
+          items:
+            type: object
+            properties:
+              cluster_index:
+                type: number
+              fingerprint:
+                type: string
+              action:
+                type: string
+                enum: [recurrence]
+              state_check_status:
+                type: string
+              issue_number:
+                type: number
+              issue_url:
+                type: string
+              reason:
+                type: string
+            required: [cluster_index, fingerprint, action, state_check_status]
+        skipped_items:
+          type: array
+          items:
+            type: object
+            properties:
+              cluster_index:
+                type: number
+              fingerprint:
+                type: string
+              action:
+                type: string
+              state_check_status:
+                type: string
+              issue_number:
+                type: number
+              issue_url:
+                type: string
+              reason:
+                type: string
+            required: [cluster_index, fingerprint, state_check_status, reason]
+        summary:
+          type: string
+outputs:
+  items: ${{ tasks.plan.outputs.items }}
+  recurrence_items: ${{ tasks.plan.outputs.recurrence_items }}
+  skipped_items: ${{ tasks.plan.outputs.skipped_items }}
+  summary: ${{ tasks.plan.outputs.summary }}

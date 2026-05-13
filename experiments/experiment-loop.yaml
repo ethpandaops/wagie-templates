@@ -116,9 +116,9 @@ tasks:
           - `noise_epsilon` must be >= 0. If negative, fail.
 
           Step 1 — Clone and branch.
-          - Clone `repo_url` into a fresh scratch directory (e.g. under `/tmp/experiment-<run-id>/` or the worker's working directory).
+          - Clone `repo_url` into the current directory.
           - Check out `base_branch`. Create local branch `result_branch` from it.
-          - Capture the **absolute path** of the clone root and return it as `workspace_path`. Every downstream task in this run will `cd` into this path before running anything.
+          - Capture the **absolute path** of the clone root and return it as `workspace_path`.
 
           Step 2 — Resolve each parameter. For each field below, honour the caller-provided value when it is non-empty; otherwise derive it from the repo and goal.
 
@@ -187,7 +187,7 @@ tasks:
           - `baseline_commit`: the current HEAD sha after setup + scaffolding but before any experiment try commits.
           - `workspace_summary`: a short note describing repo state, any scaffolding, the chosen metric, and the baseline value with a one-sentence assessment of measurement quality (e.g. `noise = ±0.5%`, `single run, wall clock`).
 
-          This worker is part of a sticky session — subsequent loop tasks will reuse the same workspace. Do not delete the workspace.
+          Do not delete the workspace at the end of this task.
         inputs:
           repo_url: ${{ inputs.repo_url }}
           base_branch: ${{ inputs.base_branch }}
@@ -223,7 +223,7 @@ tasks:
               description: Git sha of the starting point (after any scaffolding, before the loop runs)
             workspace_path:
               type: string
-              description: Absolute path to the cloned repo root. All downstream tasks `cd` here before running anything.
+              description: Absolute path to the cloned repo root
             workspace_summary:
               type: string
               description: Short summary of the prepared workspace
@@ -639,7 +639,7 @@ tasks:
         run: cleanup-experiment-workspace
         quality-gate: "${{ has(result.removed) }}"
         instructions: |-
-          Remove the scratch workspace at `workspace_path`. Do not touch anything outside it. Refuse to proceed if `workspace_path` is empty, root (`/`), or obviously not under a scratch prefix like `/tmp/`.
+          Remove the workspace at `workspace_path`. Do not touch anything outside it. Refuse to proceed if `workspace_path` is empty, `/`, or `$HOME`.
         inputs:
           workspace_path: ${{ tasks.setup.outputs.workspace_path }}
         outputs:

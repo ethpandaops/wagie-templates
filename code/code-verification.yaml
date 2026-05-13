@@ -148,7 +148,7 @@ tasks:
       source_ref: "${{ inputs.source_ref }}"
       target_ref: "${{ has(inputs.target_ref) ? inputs.target_ref : '' }}"
       checks: "${{ has(inputs.checks) ? inputs.checks : [] }}"
-      patch: "${{ has(inputs.patch) ? inputs.patch : '' }}"
+      patch: ${{ inputs.?patch }}
       context: "${{ has(inputs.context) ? inputs.context : '' }}"
     outputs:
       passed: "${{ result.passed }}"

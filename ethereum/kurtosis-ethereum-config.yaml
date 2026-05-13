@@ -86,7 +86,7 @@ tasks:
       goal: "${{ inputs.?goal }}"
       client_type: "${{ inputs.?client_type }}"
       image_hint: "${{ inputs.?image_hint }}"
-      client_pairs: "${{ inputs.?client_pairs }}"
+      client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
       constraints: "${{ inputs.?constraints }}"
       package_ref: ${{ inputs.package_ref }}
     outputs:

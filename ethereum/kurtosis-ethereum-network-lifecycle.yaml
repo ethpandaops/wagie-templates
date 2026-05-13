@@ -94,8 +94,17 @@ inputs:
     type: boolean
     default: true
     description: Whether to always remove the enclave in finally cleanup
+  config_source:
+    type: string
+    default: design
+    description: >-
+      Where the running network's configuration comes from. `design` (default) calls `kurtosis-ethereum-config` to design and optionally launch a fresh network. `existing-enclave` assumes the enclave is already running (launched elsewhere) and skips both design and launch — the lifecycle only inspects the live enclave and synthesises `config_summary` and `effective_client_pairs` from the observed service inventory.
+    schema:
+      type: string
+      enum: [design, existing-enclave]
 tasks:
   design_config:
+    if: "${{ inputs.config_source != 'existing-enclave' }}"
     uses: io.ethpandaops/kurtosis-ethereum-config@1.0.0
     inputs:
       goal: ${{ inputs.goal }}
@@ -106,7 +115,7 @@ tasks:
       devnet_name: "${{ inputs.?devnet_name }}"
       client_type: "${{ inputs.?client_type }}"
       image_hint: "${{ inputs.?image_hint }}"
-      client_pairs: "${{ inputs.?client_pairs }}"
+      client_pairs: "${{ has(inputs.client_pairs) ? inputs.client_pairs : [] }}"
     outputs:
       resolved_network_name: resolved_network_name
       resolved_network_group: resolved_network_group
@@ -118,7 +127,7 @@ tasks:
       fallback_pair_added: fallback_pair_added
   launch_network:
     needs: [design_config]
-    if: ${{ inputs.launch == true }}
+    if: "${{ inputs.launch == true && inputs.config_source != 'existing-enclave' }}"
     selection: {capabilities: [reasoning, tool-use]}
     run: launch-kurtosis-ethereum-package
     retryable: true
@@ -168,8 +177,55 @@ tasks:
       service_names: service_names
       public_endpoints: public_endpoints
       suggested_next_commands: suggested_next_commands
+  derive_from_existing:
+    needs: [inspect_enclave]
+    if: "${{ inputs.config_source == 'existing-enclave' }}"
+    selection:
+      capabilities: [reasoning]
+    run: derive-config-from-existing-enclave
+    retryable: true
+    timeout: 30m
+    quality-gate: "${{ has(result.config_summary) && size(result.config_summary) > 0 && has(result.effective_client_pairs) }}"
+    instructions: |-
+      Synthesize a `config_summary` and `effective_client_pairs` array from the inspected live enclave's service inventory. The original config artifact is not available — derive structure from observed service names.
+
+      Conventions for kurtosis-ethereum-package service names (loose; do best-effort matching):
+      - `el-<idx>-<el_type>-<cl_type>` — execution client; the first token after the index is the EL type (e.g. reth, geth, nethermind, besu, erigon).
+      - `cl-<idx>-<cl_type>-<el_type>` — consensus client; first token after index is the CL type (e.g. teku, lighthouse, prysm, nimbus, grandine, lodestar).
+      - `vc-<idx>-<vc_type>-<cl_type>` — separate validator client when present.
+      - `assertoor`, `dora`, `mev-relay`, etc. — non-client services.
+
+      Steps:
+      1. Group services by index suffix where possible (el-1, cl-1, vc-1 belong together).
+      2. For each group, emit one entry in `effective_client_pairs` with `el_type`, `cl_type`, and `vc_type` (when present). Always include `el_type` and `cl_type` as strings; use an empty string when one side is missing, and note in `config_summary` that the inventory looked incomplete.
+      3. Write a 3-4 sentence `config_summary` covering: client pair count, the el/cl types observed, presence of separate validator clients, and any unusual services (mev-relay, blob-builder, etc.).
+      4. Return both fields. Do not fabricate fields you cannot evidence from service names.
+    inputs:
+      enclave_name: ${{ inputs.enclave_name }}
+      status_summary: ${{ tasks.inspect_enclave.outputs.status_summary }}
+      service_names: ${{ tasks.inspect_enclave.outputs.service_names }}
+    outputs:
+      config_summary: ${{ result.config_summary }}
+      effective_client_pairs: ${{ result.effective_client_pairs }}
+      schema:
+        config_summary:
+          type: string
+          description: Synthesized 3-4 sentence summary of the running network's shape
+        effective_client_pairs:
+          type: array
+          items:
+            type: object
+            properties:
+              el_type:
+                type: string
+              cl_type:
+                type: string
+              vc_type:
+                type: string
+            required: [el_type, cl_type]
+          description: Per-pair client identification derived from service names
   observe_network:
-    needs: [design_config, launch_network, inspect_enclave]
+    needs: [design_config, launch_network, inspect_enclave, derive_from_existing]
     if: ${{ inputs.launch == true && inputs.observation_window != '0' && inputs.observation_window != '0 epochs' }}
     selection: {capabilities: [reasoning, tool-use]}
     run: validate-kurtosis-ethereum-network
@@ -201,8 +257,8 @@ tasks:
       observation_window: ${{ inputs.observation_window }}
       success_criteria: "${{ has(inputs.success_criteria) ? inputs.success_criteria : '' }}"
       goal: ${{ inputs.goal }}
-      config_summary: ${{ tasks.design_config.outputs.config_summary }}
-      launch_summary: ${{ tasks.launch_network.outputs.launch_summary }}
+      config_summary: "${{ has(tasks.design_config.outputs.config_summary) ? tasks.design_config.outputs.config_summary : (has(tasks.derive_from_existing.outputs.config_summary) ? tasks.derive_from_existing.outputs.config_summary : '') }}"
+      launch_summary: "${{ has(tasks.launch_network.outputs.launch_summary) ? tasks.launch_network.outputs.launch_summary : 'launch not performed (existing-enclave mode)' }}"
       status_summary: ${{ tasks.inspect_enclave.outputs.status_summary }}
       service_names: ${{ tasks.inspect_enclave.outputs.service_names }}
       public_endpoints: ${{ tasks.inspect_enclave.outputs.public_endpoints }}
@@ -253,12 +309,11 @@ tasks:
             type: string
           description: Suggested follow-up actions after observation
   summarize_result:
-    needs: [design_config, launch_network, inspect_enclave, observe_network]
+    needs: [design_config, launch_network, inspect_enclave, derive_from_existing, observe_network]
     selection: {capabilities: [reasoning]}
     run: summarize-kurtosis-ethereum-network
     retryable: true
     timeout: 1h
-    quality-gate: "${{ has(result.summary) && size(result.summary) > 0 }}"
     instructions: |-
       Summarize the designed and launched Kurtosis Ethereum network for an operator.
 
@@ -278,9 +333,9 @@ tasks:
       goal: ${{ inputs.goal }}
       enclave_name: ${{ inputs.enclave_name }}
       observation_window: ${{ inputs.observation_window }}
-      config_summary: ${{ tasks.design_config.outputs.config_summary }}
-      inferred_features: ${{ tasks.design_config.outputs.inferred_features }}
-      launch_summary: "${{ has(tasks.launch_network.outputs.launch_summary) ? tasks.launch_network.outputs.launch_summary : 'launch not requested' }}"
+      config_summary: "${{ has(tasks.design_config.outputs.config_summary) ? tasks.design_config.outputs.config_summary : (has(tasks.derive_from_existing.outputs.config_summary) ? tasks.derive_from_existing.outputs.config_summary : '') }}"
+      inferred_features: "${{ has(tasks.design_config.outputs.inferred_features) ? tasks.design_config.outputs.inferred_features : '' }}"
+      launch_summary: "${{ has(tasks.launch_network.outputs.launch_summary) ? tasks.launch_network.outputs.launch_summary : (inputs.config_source == 'existing-enclave' ? 'launch not performed (existing-enclave mode)' : 'launch not requested') }}"
       status_summary: ${{ tasks.inspect_enclave.outputs.status_summary }}
       observation_summary: "${{ has(tasks.observe_network.outputs.validation_summary) ? tasks.observe_network.outputs.validation_summary : 'observation not requested' }}"
       finalized_epoch: "${{ has(tasks.observe_network.outputs.finalized_epoch) ? tasks.observe_network.outputs.finalized_epoch : 0 }}"
@@ -302,7 +357,7 @@ tasks:
           required: true
 finally:
   cleanup_enclave:
-    if: ${{ inputs.auto_cleanup == true && inputs.launch == true }}
+    if: ${{ inputs.auto_cleanup == true && inputs.launch == true && inputs.config_source != 'existing-enclave' }}
     uses: io.ethpandaops/kurtosis-enclave-cleanup@1.0.0
     inputs:
       enclave_name: ${{ inputs.enclave_name }}
@@ -311,15 +366,15 @@ finally:
       removed: removed
       summary: summary
 outputs:
-  resolved_network_name: ${{ tasks.design_config.outputs.resolved_network_name }}
-  resolved_network_group: ${{ tasks.design_config.outputs.resolved_network_group }}
-  config: ${{ tasks.design_config.outputs.config }}
-  config_summary: ${{ tasks.design_config.outputs.config_summary }}
-  inferred_features: ${{ tasks.design_config.outputs.inferred_features }}
-  devnet_assumptions: ${{ tasks.design_config.outputs.devnet_assumptions }}
-  effective_client_pairs: ${{ tasks.design_config.outputs.effective_client_pairs }}
-  fallback_pair_added: ${{ tasks.design_config.outputs.fallback_pair_added }}
-  launch_summary: "${{ has(tasks.launch_network.outputs.launch_summary) ? tasks.launch_network.outputs.launch_summary : 'launch not requested' }}"
+  resolved_network_name: "${{ has(tasks.design_config.outputs.resolved_network_name) ? tasks.design_config.outputs.resolved_network_name : '' }}"
+  resolved_network_group: "${{ has(tasks.design_config.outputs.resolved_network_group) ? tasks.design_config.outputs.resolved_network_group : '' }}"
+  config: "${{ has(tasks.design_config.outputs.config) ? tasks.design_config.outputs.config : '' }}"
+  config_summary: "${{ has(tasks.design_config.outputs.config_summary) ? tasks.design_config.outputs.config_summary : (has(tasks.derive_from_existing.outputs.config_summary) ? tasks.derive_from_existing.outputs.config_summary : '') }}"
+  inferred_features: "${{ has(tasks.design_config.outputs.inferred_features) ? tasks.design_config.outputs.inferred_features : '' }}"
+  devnet_assumptions: "${{ has(tasks.design_config.outputs.devnet_assumptions) ? tasks.design_config.outputs.devnet_assumptions : '' }}"
+  effective_client_pairs: "${{ has(tasks.design_config.outputs.effective_client_pairs) ? tasks.design_config.outputs.effective_client_pairs : (has(tasks.derive_from_existing.outputs.effective_client_pairs) ? tasks.derive_from_existing.outputs.effective_client_pairs : []) }}"
+  fallback_pair_added: "${{ has(tasks.design_config.outputs.fallback_pair_added) ? tasks.design_config.outputs.fallback_pair_added : false }}"
+  launch_summary: "${{ has(tasks.launch_network.outputs.launch_summary) ? tasks.launch_network.outputs.launch_summary : (inputs.config_source == 'existing-enclave' ? 'launch not performed (existing-enclave mode)' : 'launch not requested') }}"
   run_command: "${{ has(tasks.launch_network.outputs.run_command) ? tasks.launch_network.outputs.run_command : '' }}"
   args_file_path: "${{ has(tasks.launch_network.outputs.args_file_path) ? tasks.launch_network.outputs.args_file_path : '' }}"
   status_summary: ${{ tasks.inspect_enclave.outputs.status_summary }}

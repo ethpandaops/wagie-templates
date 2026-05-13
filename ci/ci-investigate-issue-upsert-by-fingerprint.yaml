@@ -1,0 +1,235 @@
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/ci-investigate-issue-upsert-by-fingerprint
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
+description: >-
+  Use when a ci-investigate triage run needs to create or update one long-lived GitHub issue per cheap failure fingerprint. Writes a caller-rendered canonical issue body with `ci-investigate` idempotency markers so reruns replace stale content instead of appending comments.
+tags: ["ci", "ci-investigate", "github-issues", "upsert", "idempotent", "triage"]
+defaults:
+  retryable: true
+  timeout: 30m
+inputs:
+  target_repo:
+    type: string
+    required: true
+    description: GitHub repository in owner/name form where ci-investigate issues live
+  gh_token:
+    type: secret
+    required: false
+    description: Optional GitHub token secret used as GH_TOKEN for gh CLI commands. When unset, use ambient gh authentication.
+  run_id:
+    type: string
+    required: true
+    description: GitHub Actions run id of the failing run being published
+  run_url:
+    type: string
+    required: true
+    description: HTML URL of the failing run
+  run_started_at:
+    type: string
+    default: ""
+    description: ISO timestamp the failing run started (used in recurrence entries)
+  cluster_reports:
+    type: array
+    required: true
+    description: One entry per cluster to publish. The template never invents content — caller pre-renders issue_body_md.
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          cheap_fingerprint:
+            type: string
+          human_label:
+            type: string
+          classification:
+            type: string
+            description: Root-cause classification, such as framework-bug, framework-dependency, single-client, multi-client, devnet-network, config-issue, test-design, infra-flake, mixed, or unknown.
+          classification_confidence:
+            type: number
+            description: Classification confidence from the upstream investigation, when available.
+          owner_confidence:
+            type: number
+            description: Confidence that the rendered issue identifies the right responsible owner/component.
+          mechanism_confidence:
+            type: number
+            description: Confidence that the described mechanism explains the observed failure.
+          source_identity_confidence:
+            type: number
+            description: Confidence that inspected source code matches the runtime that failed.
+          regression_pin_confidence:
+            type: number
+            description: Confidence that the exact regression-introducing code/config change is pinned.
+          diagnosis_confidence:
+            type: number
+            description: Conservative confidence that the rendered issue identifies the actual mechanism and source surface.
+          notification_confidence:
+            type: number
+            description: Confidence that the final touched issue is safe and useful to alert humans about.
+          issue_body_md:
+            type: string
+            description: Full markdown for the canonical issue body, ALREADY containing all required ci-investigate markers. Used for create or update.
+          labels:
+            type: array
+            items:
+              type: string
+            description: Labels to apply to the issue. Existing labels are preserved except stale managed `status:*` labels.
+          existing_issue_number:
+            type: number
+            description: From state-check; 0 when no covering issue exists yet
+          state_check_status:
+            type: string
+            description: new | covered-complete | covered-pending | covered-stale
+          desired_state:
+            type: string
+            enum: [pending, investigating, complete]
+            description: State marker value to write on the parent body at the end of upsert
+        required: [cheap_fingerprint, human_label, issue_body_md, labels, existing_issue_number, state_check_status, desired_state]
+  schema_version:
+    type: number
+    default: 1
+    description: Marker schema version this template writes
+  title_prefix:
+    type: string
+    default: "[ci-triage]"
+    description: Prefix for newly created issue titles. Existing titles are not auto-rewritten.
+tasks:
+  upsert:
+    selection:
+      capabilities: [tool-use]
+    run: ci-investigate-issue-upsert-by-fingerprint
+    quality-gate: "${{ has(result.results) && size(result.results) == size(inputs.cluster_reports) }}"
+    instructions: |-
+      Upsert one long-lived GitHub issue per cluster, idempotent against re-runs.
+
+      ALL `gh` commands MUST be scoped to `target_repo` via `--repo <target_repo>` (or `/repos/<target_repo>/` for raw API calls). Never run a `gh` command that depends on the worker's current-directory git remote — the worker may have unrelated clones in scope from upstream tasks and an unscoped command would silently target the wrong repo.
+
+      GitHub authentication:
+      - `gh_token` is an optional secret. When present, use it only as the `GH_TOKEN` environment variable for `gh` commands and set `GH_PROMPT_DISABLED=1`.
+      - When `gh_token` is absent, use the worker's ambient `gh` authentication (`gh auth status` should pass).
+      - Command examples below omit the environment wrapper; apply the authentication environment to every `gh` invocation.
+      - Do not run `gh auth login`, `gh auth token`, or `gh auth status --show-token`. Do not print, echo, persist, return, or write the token into files. Keep shell tracing and `GH_DEBUG` disabled while a token is in scope.
+
+      Body-only contract: each cluster owns exactly one canonical GitHub issue body. Reruns replace that body with the caller-rendered latest diagnosis. Do not create investigation comments or recurrence-log comments. This keeps the visible issue state deterministic and lets a rerun pave over partial or stale content.
+
+      Marker contract — every upsert MUST preserve and update these HTML-comment markers exactly inside the issue body. They are the persistent state store; the template never parses prose.
+
+      Issue body markers (one line each, anywhere in the body):
+      - `<!-- ci-investigate:schema-version=<schema_version> -->`
+      - `<!-- ci-investigate:cheap-fingerprint=<value> -->`
+      - `<!-- ci-investigate:classification=<value-or-unknown> -->`
+      - `<!-- ci-investigate:state=<desired_state> -->`
+      - `<!-- ci-investigate:first-seen-run=<run_id> -->` (set on create, never overwritten)
+      - `<!-- ci-investigate:last-seen-run=<run_id> -->` (updated every recurrence)
+      - `<!-- ci-investigate:last-seen-at=<run_started_at-or-current-utc-iso8601> -->` (updated every recurrence for display/context)
+      - `<!-- ci-investigate:last-investigated-run=<run_id> -->` (updated only when this body contains a completed investigation)
+      - `<!-- ci-investigate:last-investigated-at=<run_started_at-or-current-utc-iso8601> -->` (updated only when this body contains a completed investigation; preserves the stale-reinvestigation clock)
+      - `<!-- ci-investigate:title-locked=<true|false> -->` (preserved by caller-rendered body when present)
+
+      Caller pre-renders `issue_body_md` with the markers already in place. Do not modify the markdown — write it verbatim. The template's job is the `gh` orchestration and idempotency.
+
+      Label handling:
+      - Never let a missing label prevent issue creation or body updates. Create/update the issue first, then apply labels best-effort.
+      - Before adding a label, check whether it exists. If missing, create it with a neutral color (`ededed`) and a short description such as `Managed by ci-investigate`; if creation races or fails, continue.
+      - If `gh issue edit --add-label` fails after retry, record the label failure in the cluster note/summary but do not mark the whole cluster skipped unless the issue body write also failed.
+      - Managed status labels are `status:pending`, `status:investigating`, and `status:complete`. For the canonical issue, remove any managed status label that is not present in the caller-rendered `labels` before adding new labels. Do not remove any other labels; human labels and non-status automation labels must be preserved.
+
+      Algorithm per cluster report:
+
+      1. Resolve target issue with cross-invocation dedup.
+         a. Build an open issue inventory and parse markers locally before falling back to per-fingerprint search:
+            - List open labelled issues once: `gh issue list --repo <target_repo> --state open --label ci-investigate --limit 1000 --json number,url,createdAt,labels`.
+            - Also list open marker-bearing issues even if labels are missing: `gh issue list --repo <target_repo> --state open --search "in:body ci-investigate:cheap-fingerprint" --limit 1000 --json number,url,createdAt,labels`.
+            - Merge by issue number, then fetch bodies for candidates with `gh issue view <number> --repo <target_repo> --json number,url,createdAt,labels,body`.
+            - GitHub CLI returns `labels` as objects. Immediately convert labels on every fetched issue to a flat array of label names using each object's `.name` value. Treat absent/null labels as an empty array. All checks for `ci-investigate:ignore`, `ci-investigate:duplicate`, and managed `status:*` labels must use normalized label names.
+            - Parse the `ci-investigate:cheap-fingerprint=<value>` marker from each body and select matches whose parsed value exactly equals `cheap_fingerprint`. Do not rely on substring matching for the final decision; fingerprints contain punctuation and slashes.
+            - If inventory queries fail, or if no local marker match is found for this fingerprint, fall back to the narrower search: `gh issue list --repo <target_repo> --state open --search "in:body ci-investigate:cheap-fingerprint=<cheap_fingerprint>" --json number,url,createdAt,labels,body`, then fetch/parse any missing bodies and again require exact marker equality before using a match.
+         b. Partition matching open issues before choosing a target:
+            - Active matches: open matching issues without label `ci-investigate:ignore`.
+            - Ignored matches: open matching issues with label `ci-investigate:ignore`.
+            - Ignored matches are operator opt-outs. Do not select them as canonical, edit them, close them as duplicates, or use them as race winners.
+         c. If one or more active matches exist:
+            - Pick canonical from active matches only: the issue with the OLDEST `createdAt` (the bug-tracking surface that came into existence first wins).
+            - For EACH non-canonical active match (do this before writing anything else to those issues):
+              i.   Add label `ci-investigate:duplicate` via the best-effort label handling above.
+              ii.  Read existing body, prepend a notice: `**Duplicate of #<canonical_number>** — see canonical for ongoing updates.\n\n` followed by the original body. Edit with `gh issue edit <n> --repo <target_repo> --body <file>`.
+              iii. Close with `gh issue close <n> --repo <target_repo> --reason "not planned"`.
+              iv.  Record this issue number in `deduplicated_issue_numbers` for the cluster's result.
+            - The canonical is the target issue from here on.
+            - Leave ignored matches untouched. If useful, mention ignored matching issue numbers in the cluster `note`.
+         d. If zero active matches and one or more ignored matches exist:
+            - Return `action=skipped` for this cluster, using the oldest ignored match's number and URL, with `note` explaining that the matching fingerprint is suppressed by `ci-investigate:ignore`.
+            - Do not create a replacement issue while an ignored open issue exists for the fingerprint. The label is an explicit operator request to suppress that fingerprint.
+         e. If zero active matches and zero ignored matches exist:
+            - If `existing_issue_number > 0` from the caller, fetch it explicitly with `gh issue view <n> --repo <target_repo> --json number,url,state,labels,body`.
+              Use it only when it is still open, does not carry label `ci-investigate:ignore`, and still carries the matching fingerprint marker. If it is ignored, return `action=skipped` with a concise `note` and do not edit or create anything for that fingerprint. If it is closed, missing, or marker-mismatched, treat it as no active match and fall through to create. Closed issues are historical context only; never reopen them and never edit them as the canonical active issue.
+            - Otherwise create a new issue: `gh issue create --repo <target_repo> --title "<title_prefix> <human_label>" --body <file>` with `issue_body_md`. Do not pass labels on create; apply labels afterward with the best-effort label handling above. Capture the new issue number.
+            - IMMEDIATELY after creating, RE-RUN the inventory/marker lookup from step (a) for this fingerprint to detect parallel-run races: another wagie invocation may have created its own issue within the same ~5-second window. Partition the matches again using step (b). If multiple active issues now match, apply the dedup logic from step (c) — older active `createdAt` wins. If OUR new issue is non-canonical, mark it duplicate of the older active issue and treat the older issue as the target for the rest of this cluster's work. Leave ignored matches untouched.
+
+      2. Update canonical issue body.
+         - Edit only the open canonical issue body: `gh issue edit <number> --repo <target_repo> --body <file>` where `<file>` holds `issue_body_md`.
+         - Reconcile managed status labels: remove stale `status:pending`, `status:investigating`, or `status:complete` labels that are not present in `cluster_report.labels`. Ignore missing-label errors and continue.
+         - Apply labels: `gh issue edit <number> --repo <target_repo> --add-label <label>` for each label not already present. Never remove non-status labels (humans may have added some).
+
+      3. Do not write comments.
+         - Do not post or edit per-run investigation comments.
+         - Do not post or edit recurrence-log comments.
+         - Do not inspect or delete issue comments; the canonical issue body is authoritative.
+
+      4. Output one entry per cluster_report in the same order:
+         - `cheap_fingerprint`, `issue_number` (the canonical issue we wrote to, or the ignored matching issue when skipped due to `ci-investigate:ignore`), `issue_url`, `action` (one of `created`, `updated`, `skipped`, `deduplicated`), `deduplicated_issue_numbers` (array of non-ignored active issue numbers closed as duplicates during reconciliation; empty when none), and `issue_body_chars`.
+
+         Use `action=deduplicated` when the cluster's primary effect was closing active duplicates (e.g. we discovered our newly-created issue lost a race and was itself closed as a duplicate). Use `skipped` when every matching active path is blocked by `ci-investigate:ignore` or by a per-cluster `gh` failure. Ignored issues are never edited, selected as canonical, or closed as duplicates.
+
+      Failure handling: if any single `gh` call fails, retry once. If still failing for a given cluster, record `action=skipped` with a brief reason in `summary` for that cluster, and continue to the next — do not abort the whole publish.
+
+      Return `results` aligned with input order and a short overall `summary`.
+    inputs:
+      target_repo: ${{ inputs.target_repo }}
+      gh_token: ${{ inputs.?gh_token }}
+      run_id: ${{ inputs.run_id }}
+      run_url: ${{ inputs.run_url }}
+      run_started_at: ${{ inputs.run_started_at }}
+      cluster_reports: ${{ inputs.cluster_reports }}
+      schema_version: ${{ inputs.schema_version }}
+      title_prefix: ${{ inputs.title_prefix }}
+    outputs:
+      results: "${{ result.results }}"
+      summary: "${{ has(result.summary) ? result.summary : '' }}"
+      schema:
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              cheap_fingerprint:
+                type: string
+              issue_number:
+                type: number
+              issue_url:
+                type: string
+              action:
+                type: string
+                enum: [created, updated, skipped, deduplicated]
+              issue_body_chars:
+                type: number
+                description: Character count of the canonical issue body written this run
+              deduplicated_issue_numbers:
+                type: array
+                items:
+                  type: number
+                description: Active non-ignored issue numbers that were closed as duplicates during reconciliation. Empty when none. May include the run's own newly-created issue when it lost a creation race. Ignored issues are never included.
+              note:
+                type: string
+                description: Optional short note, used when action=skipped to explain why
+            required: [cheap_fingerprint, issue_number, issue_url, action]
+          description: Per-cluster publish results aligned with input order
+        summary:
+          type: string
+outputs:
+  results: ${{ tasks.upsert.outputs.results }}
+  summary: ${{ tasks.upsert.outputs.summary }}
