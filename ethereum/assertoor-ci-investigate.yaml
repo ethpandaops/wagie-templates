@@ -198,7 +198,7 @@ tasks:
       skipped_items: skipped_items
       summary: summary
   investigate_each:
-    needs: [fetch, adapt, cluster, state_check, worklist]
+    needs: [fetch, adapt, cluster, state_check, worklist, publish_pending]
     if: "${{ has(tasks.worklist.outputs.items) && size(tasks.worklist.outputs.items) > 0 }}"
     strategy:
       matrix:
@@ -480,6 +480,8 @@ tasks:
                   reproduced:
                     type: boolean
                   test_result:
+                    type: string
+                  observed_signal:
                     type: string
                   summary:
                     type: string
