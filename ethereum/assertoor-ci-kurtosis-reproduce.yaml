@@ -7,7 +7,7 @@ authors: [savid]
 homepage: https://github.com/ethpandaops/wagie-templates
 repository: https://github.com/ethpandaops/wagie-templates
 description: >-
-  Use to reproduce a previously observed assertoor failure on a kurtosis-capable worker. Usually called by assertoor-ci-investigate; loops launch then await_assertoor up to reproduction_attempts times, stops early on reproduction or a faithful queue-blocked outcome, leaves the final reproduced enclave running for downstream bug-hunt, and treats non-reproduction as a first-class outcome.
+  Use to reproduce a previously observed assertoor failure on a kurtosis-capable worker. Usually called by assertoor-ci-investigate; loops launch then await_assertoor up to reproduction_attempts times, stops early on reproduction, a faithful queue-blocked outcome, or watcher interruption, leaves the final reproduced enclave running for downstream bug-hunt, and treats non-reproduction as a first-class outcome.
 tags: ["kurtosis", "ethereum", "ethpandaops", "reproduce", "reproduction", "assertoor"]
 defaults:
   retryable: true
@@ -41,7 +41,7 @@ inputs:
     type: number
     default: 4
     description: >-
-      Maximum reproduction attempts. The loop stops early on the first `reproduced=true` outcome. Every attempt uses the stock assertoor test YAML and original timeout values; retries are for non-deterministic / race-conditiony failures, not timeout mutation. For a 50% per-attempt reproduction rate the cumulative odds at the default of 4 are ~94%; for 25% per-attempt, ~68%. Bump this for stubborn / rare non-deterministic bugs.
+      Maximum reproduction attempts. The loop stops early on the first `reproduced=true`, `test_result=blocked`, or `test_result=interrupted` outcome. Every attempt uses the stock assertoor test YAML and original timeout values; retries are for non-deterministic / race-conditiony failures, not timeout mutation. For a 50% per-attempt reproduction rate the cumulative odds at the default of 4 are ~94%; for 25% per-attempt, ~68%. Bump this for stubborn / rare non-deterministic bugs.
   prior_summary:
     type: string
     default: ""
@@ -61,7 +61,7 @@ tasks:
         evidence: "${{ [] }}"
         matches_prior: "${{ false }}"
         attempt_log: "${{ '' }}"
-      until: "${{ loop.reproduced == true || loop.test_result == 'blocked' }}"
+      until: "${{ loop.reproduced == true || loop.test_result == 'blocked' || loop.test_result == 'interrupted' }}"
       on-max-exhausted: continue
     inputs:
       enclave_name: ${{ inputs.enclave_name }}
@@ -135,11 +135,11 @@ tasks:
           labels: [kurtosis]
         run: await-assertoor-reproduction
         timeout: 30h
-        quality-gate: "${{ has(result.reproduced) && has(result.test_result) }}"
+        quality-gate: "${{ has(result.reproduced) && has(result.test_result) && has(result.observed_signal) && (result.test_result != 'failure' || result.observed_signal == 'terminal') && (result.test_result != 'success' || result.observed_signal == 'terminal') && (result.test_result != 'timeout' || result.observed_signal == 'timeout_reached') && (result.test_result != 'blocked' || result.observed_signal == 'blocked') && (result.test_result != 'interrupted' || result.observed_signal == 'interrupted') }}"
         instructions: |-
-          Watch the assertoor API to determine whether the originally-failing test recurred. Emit the structured output only when the test reaches a terminal status, the full queue is blocked by an earlier terminal failure before the target starts, OR cumulative wait exceeds `reproduction_attempt_timeout_minutes`.
+          Watch the assertoor API to determine whether the originally-failing test recurred. Emit the structured output only when the test reaches a terminal status, the full queue is blocked by an earlier terminal failure before the target starts, cumulative wait exceeds `reproduction_attempt_timeout_minutes`, or the worker/provider explicitly interrupts the watcher before any of those signals.
 
-          **Pattern: foreground chunked polling.** Some agents cap a single shell call below the full assertoor timeout. Poll in foreground chunks of about 8-9 minutes, print one compact status line about every 30 seconds, then immediately continue with another foreground polling call until terminal, blocked, or the cumulative `reproduction_attempt_timeout_minutes` budget is reached. Do not use async watchers, `nohup`, background pollers, or fire-and-forget notifications. After a chunk prints `CHUNK_EXHAUSTED`, the next action MUST be another foreground polling shell call; do not summarize, wait, or emit output unless a terminal signal was observed.
+          **Pattern: foreground chunked polling.** Some agents cap a single shell call below the full assertoor timeout. Poll in foreground chunks of about 8-9 minutes, print one compact status line about every 30 seconds, then immediately continue with another foreground polling call until terminal, blocked, or the cumulative `reproduction_attempt_timeout_minutes` budget is reached. Do not use async watchers, `nohup`, background pollers, or fire-and-forget notifications. After a chunk prints `CHUNK_EXHAUSTED`, the next action MUST be another foreground polling shell call; do not summarize, wait, or emit output unless a terminal, blocked, timeout, or explicit interruption signal was observed.
 
           Procedure:
 
@@ -150,7 +150,7 @@ tasks:
           3. Poll the target run in foreground chunks. Persist a small state file containing the first poll timestamp so retries continue the same cumulative timeout budget. Do not source that state file as shell; read the numeric `START=` value. Each chunk should:
              - Query `/api/v1/test_run/<run_id>`.
              - Query `/api/v1/test_runs` to detect an earlier terminal failure blocking the target before it starts.
-             - Print `STATUS elapsed=<s> status=<status> result=<result> tasks=<complete>/<total> running=[...] prior_running=[...] prior_failed=[...]` every ~30 seconds.
+             - Print `STATUS elapsed=<s> status=<status> result=<result> tasks=<complete>/<total> running=[...] prior_blocking=[...] prior_failed=[...]` every ~30 seconds. `prior_blocking` means earlier queue entries that are not done yet; it includes running, pending, queued, or scheduled tests.
              - Stop immediately on terminal, blocked, or cumulative timeout.
 
              Suggested shell shape:
@@ -184,7 +184,7 @@ tasks:
                STARTED=$(printf '%s' "$RESP" | jq -r '.data.started_at // .data.start_time // .data.startedAt // ""')
                RUNS=$(curl -s --max-time 10 "$ASSERTOOR_URL/api/v1/test_runs")
                PRIOR_FAILED=$(printf '%s' "$RUNS" | jq -r --argjson target "$RUN_ID" '[.data[]? | {id:(.run_id // .id // 0), name:(.name // .test_id // "unknown"), status:(.status // ""), result:(.result // "")} | select(.id < $target) | select((.status == "failure") or (.status == "failed") or (.status == "error") or (.status == "complete" and .result == "failure") or (.status == "completed" and .result == "failure") or (.result == "failure") or (.result == "failed") or (.result == "error")) | "id=" + (.id|tostring) + " name=" + .name + " status=" + .status + " result=" + .result] | join("; ")')
-               PRIOR_RUNNING=$(printf '%s' "$RUNS" | jq -r --argjson target "$RUN_ID" '[.data[]? | {id:(.run_id // .id // 0), name:(.name // .test_id // "unknown"), status:(.status // ""), result:(.result // "")} | select(.id < $target) | select((.status == "running") or (.status == "pending") or (.status == "queued") or (.status == "scheduled")) | "id=" + (.id|tostring) + " name=" + .name + " status=" + .status] | join("; ")')
+               PRIOR_BLOCKING=$(printf '%s' "$RUNS" | jq -r --argjson target "$RUN_ID" '[.data[]? | {id:(.run_id // .id // 0), name:(.name // .test_id // "unknown"), status:(.status // ""), result:(.result // "")} | select(.id < $target) | select((.status == "running") or (.status == "pending") or (.status == "queued") or (.status == "scheduled")) | "id=" + (.id|tostring) + " name=" + .name + " status=" + .status] | join("; ")')
                if [ -n "$PRIOR_FAILED" ] && { [ -z "$STARTED" ] || [ "$STARTED" = "0" ] || [ "$STATUS" = "pending" ] || [ "$STATUS" = "queued" ] || [ "$STATUS" = "scheduled" ]; }; then
                  printf '%s\n' "$PRIOR_FAILED" > "$BLOCKED"
                  echo "BLOCKED elapsed=${ELAPSED}s blocker=[$PRIOR_FAILED]"
@@ -193,7 +193,7 @@ tasks:
                COMPLETE=$(printf '%s' "$RESP" | jq -r '[.data.tasks[]? | select((.completed == true) or (.status == "complete") or (.status == "completed") or (.status == "success"))] | length')
                TOTAL=$(printf '%s' "$RESP" | jq -r '.data.tasks // [] | length')
                CURRENT=$(printf '%s' "$RESP" | jq -r '[.data.tasks[]? | select(.status == "running") | .name] | join(",")')
-               echo "STATUS elapsed=${ELAPSED}s status=$STATUS result=$RESULT tasks=${COMPLETE}/${TOTAL} running=[${CURRENT}] prior_running=[${PRIOR_RUNNING}] prior_failed=[${PRIOR_FAILED}]"
+               echo "STATUS elapsed=${ELAPSED}s status=$STATUS result=$RESULT tasks=${COMPLETE}/${TOTAL} running=[${CURRENT}] prior_blocking=[${PRIOR_BLOCKING}] prior_failed=[${PRIOR_FAILED}]"
                TERMINAL=false
                case "$STATUS" in
                  success|complete|completed|failure|failed|error|cancelled|canceled) TERMINAL=true ;;
@@ -214,19 +214,21 @@ tasks:
           4. After each foreground chunk, inspect the output:
                - Contains `TERMINAL ...` → read `await-final-<port>.json`, derive structured outputs (step 5), emit, done.
                - Contains `BLOCKED ...` → read `await-blocked-<port>.txt` when present, emit `reproduced=false, test_result="blocked"`, done.
-               - Contains `TIMEOUT_REACHED ...` → emit `reproduced=false, test_result="timeout"`, done.
+               - Contains `TIMEOUT_REACHED ...` → emit `reproduced=false, test_result="timeout"`, `observed_signal="timeout_reached"`, done.
                - During target-run discovery, earlier queued test failed before the target existed → emit `reproduced=false, test_result="blocked"`, done.
                - Contains `CHUNK_EXHAUSTED` → immediately run another foreground chunk. Repeat until terminal or cumulative timeout.
+               - Worker/provider interruption before `TERMINAL`, `BLOCKED`, or `TIMEOUT_REACHED` → emit `reproduced=false`, `test_result="interrupted"`, `observed_signal="interrupted"`, and explain that the watcher was interrupted before an assertoor outcome was observed. Do not call this a timeout.
 
-             **Crucial rule: do not emit structured output until you have observed `TERMINAL`, `BLOCKED`, or `TIMEOUT_REACHED` in the chunk output.** Premature emission produces false `test_result=timeout` outputs that corrupt downstream classification. Keep polling via repeated synchronous shell calls until one terminal signal appears.
+             **Crucial rule: do not emit `test_result="timeout"` unless you observed `TIMEOUT_REACHED`.** A stop hook, provider interruption, command cap, or `CHUNK_EXHAUSTED` without `TIMEOUT_REACHED` is not an assertoor timeout. Keep polling via repeated synchronous shell calls until one terminal signal appears; if the worker is explicitly interrupted and must emit, use `test_result="interrupted"` instead.
 
              Do NOT `ls` or `stat` the final JSON during the wait — it only exists after `TERMINAL` is written, and `ls` on a missing file returns non-zero which marks your tool call as failed. The `TERMINAL` line is the signal; read the JSON only after you see it.
 
           5. Outcomes:
-             - Terminal failure: when final status or result indicates `failure`, `failed`, or `error`, set `reproduced=true`, `test_result="failure"`. From `data.tasks[]` in the saved final JSON, capture the failing task titles/names, statuses/results, and 5-10 lines of `result_error` or surrounding context into `evidence`.
-             - Terminal success: when final status or result indicates `success`, `complete`, or `completed` without failure evidence, set `reproduced=false`, `test_result="success"`. The original failure did NOT recur.
-             - Timeout: `reproduced=false`, `test_result="timeout"`. Note elapsed minutes, last-observed target status/result, currently running task titles/runtimes, and prior queued/running tests in `reproduction_summary`.
-             - Queue blocked before target: `reproduced=false`, `test_result="blocked"`. Explain that faithful full-queue reproduction did not reach the target because a prior test failed; this is a different outcome from target test success or timeout.
+             - Terminal failure: when final status or result indicates `failure`, `failed`, or `error`, set `reproduced=true`, `test_result="failure"`, `observed_signal="terminal"`. From `data.tasks[]` in the saved final JSON, capture the failing task titles/names, statuses/results, and 5-10 lines of `result_error` or surrounding context into `evidence`.
+             - Terminal success: when final status or result indicates `success`, `complete`, or `completed` without failure evidence, set `reproduced=false`, `test_result="success"`, `observed_signal="terminal"`. The original failure did NOT recur.
+             - Timeout: only after `TIMEOUT_REACHED`, set `reproduced=false`, `test_result="timeout"`, `observed_signal="timeout_reached"`. Note elapsed minutes, last-observed target status/result, currently running task titles/runtimes, and prior blocking tests in `reproduction_summary`.
+             - Queue blocked before target: `reproduced=false`, `test_result="blocked"`, `observed_signal="blocked"`. Explain that faithful full-queue reproduction did not reach the target because a prior test failed; this is a different outcome from target test success or timeout.
+             - Interrupted watcher: `reproduced=false`, `test_result="interrupted"`, `observed_signal="interrupted"`. Explain the external interruption and last observed target/prior-blocking status. This is not evidence that the assertoor test timed out or passed.
 
           6. When `reproduced=true` AND `prior_summary` is non-empty: compare the failed-task evidence against the prior summary. Note in `reproduction_summary` whether the reproduction matches (`matches prior`) or appears to be a different failure mode (`different mode - investigate as new`).
 
@@ -241,6 +243,7 @@ tasks:
         outputs:
           reproduced: ${{ result.reproduced }}
           test_result: ${{ result.test_result }}
+          observed_signal: ${{ result.observed_signal }}
           reproduction_summary: "${{ has(result.reproduction_summary) ? result.reproduction_summary : '' }}"
           evidence: "${{ has(result.evidence) ? result.evidence : [] }}"
           matches_prior: "${{ has(result.matches_prior) ? result.matches_prior : false }}"
@@ -249,7 +252,10 @@ tasks:
               type: boolean
             test_result:
               type: string
-              enum: [failure, success, timeout, blocked]
+              enum: [failure, success, timeout, blocked, interrupted]
+            observed_signal:
+              type: string
+              enum: [terminal, blocked, timeout_reached, interrupted]
             reproduction_summary:
               type: string
             evidence:
@@ -271,7 +277,7 @@ tasks:
           Format: `attempt <N>: launched=<bool>, reproduced=<bool>, test_result=<value>, note=<short>`
 
           - `<N>` is the loop iteration (1-indexed).
-          - `<note>` is a 5-15 word description: when reproduced, the failure mode; when not reproduced (success), `"test passed - no recurrence"`; when blocked, `"full queue blocked before target test"`; when timeout, `"watcher hit reproduction_attempt_timeout_minutes deadline"`; when launch failed, the launch_summary tail.
+          - `<note>` is a 5-15 word description: when reproduced, the failure mode; when not reproduced (success), `"test passed - no recurrence"`; when blocked, `"full queue blocked before target test"`; when timeout, `"watcher hit reproduction_attempt_timeout_minutes deadline"`; when interrupted, `"watcher interrupted before assertoor terminal signal"`; when launch failed, the launch_summary tail.
 
           Cap the line at 250 characters; strip ANSI/control characters. One line only — no embedded newlines.
         inputs:
@@ -293,6 +299,7 @@ tasks:
       launch_summary: "${{ has(tasks.launch.outputs.launch_summary) ? tasks.launch.outputs.launch_summary : '' }}"
       reproduced: "${{ has(tasks.await_assertoor.outputs.reproduced) ? tasks.await_assertoor.outputs.reproduced : false }}"
       test_result: "${{ has(tasks.await_assertoor.outputs.test_result) ? tasks.await_assertoor.outputs.test_result : 'launch-failed' }}"
+      observed_signal: "${{ has(tasks.await_assertoor.outputs.observed_signal) ? tasks.await_assertoor.outputs.observed_signal : '' }}"
       reproduction_summary: "${{ has(tasks.await_assertoor.outputs.reproduction_summary) ? tasks.await_assertoor.outputs.reproduction_summary : '' }}"
       evidence: "${{ has(tasks.await_assertoor.outputs.evidence) ? tasks.await_assertoor.outputs.evidence : [] }}"
       matches_prior: "${{ has(tasks.await_assertoor.outputs.matches_prior) ? tasks.await_assertoor.outputs.matches_prior : false }}"
@@ -311,6 +318,8 @@ tasks:
         reproduced:
           type: boolean
         test_result:
+          type: string
+        observed_signal:
           type: string
         reproduction_summary:
           type: string
@@ -340,6 +349,7 @@ outputs:
   launch_summary: ${{ tasks.attempt_loop.outputs.launch_summary }}
   reproduced: ${{ tasks.attempt_loop.outputs.reproduced }}
   test_result: ${{ tasks.attempt_loop.outputs.test_result }}
+  observed_signal: ${{ tasks.attempt_loop.outputs.observed_signal }}
   reproduction_summary: ${{ tasks.attempt_loop.outputs.reproduction_summary }}
   evidence: ${{ tasks.attempt_loop.outputs.evidence }}
   matches_prior: ${{ tasks.attempt_loop.outputs.matches_prior }}

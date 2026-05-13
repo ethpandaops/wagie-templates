@@ -178,6 +178,7 @@ tasks:
       launch_summary: launch_summary
       reproduced: reproduced
       test_result: test_result
+      observed_signal: observed_signal
       reproduction_summary: reproduction_summary
       evidence: evidence
       matches_prior: matches_prior
@@ -384,6 +385,7 @@ outputs:
           "launched": has(tasks.reproduce.outputs.launched) ? tasks.reproduce.outputs.launched : false,
           "reproduced": has(tasks.reproduce.outputs.reproduced) ? tasks.reproduce.outputs.reproduced : false,
           "test_result": has(tasks.reproduce.outputs.test_result) ? tasks.reproduce.outputs.test_result : "",
+          "observed_signal": has(tasks.reproduce.outputs.observed_signal) ? tasks.reproduce.outputs.observed_signal : "",
           "summary": has(tasks.reproduce.outputs.reproduction_summary) ? tasks.reproduce.outputs.reproduction_summary : "",
           "evidence": has(tasks.reproduce.outputs.evidence) ? tasks.reproduce.outputs.evidence : [],
           "matches_prior": has(tasks.reproduce.outputs.matches_prior) ? tasks.reproduce.outputs.matches_prior : false,

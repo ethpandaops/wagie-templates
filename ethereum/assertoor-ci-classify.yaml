@@ -244,7 +244,7 @@ tasks:
         Owner-first and regression rules:
         - When a named client/service emits a concrete RPC/API/log error, classify toward that emitting component first. The caller/tool that submitted the request is not the owner unless evidence shows it generated invalid input or wrong configuration.
         - When previous-success baseline shows a changed image digest/build/source revision for the emitting component, treat that as strong regression evidence and prefer the matching client/source target.
-        - When local reproduction is non-faithful (`matches_prior=false`, `test_result=blocked`, bug-hunt shows changed timeout/config/images/workload, or the reproduced failed client pairs/tasks materially differ from the original failed pairs/tasks), do not downgrade the original CI artifact signal. Classify based on original artifacts plus any faithful repro evidence; separately record the repro mismatch.
+        - When local reproduction is non-faithful (`matches_prior=false`, `test_result=blocked`, `test_result=interrupted`, bug-hunt shows changed timeout/config/images/workload, or the reproduced failed client pairs/tasks materially differ from the original failed pairs/tasks), do not downgrade the original CI artifact signal. Classify based on original artifacts plus any faithful repro evidence; separately record the repro mismatch.
         - Framework/dependency fallback requires either exhausted/inconclusive client evidence or affirmative caller-side evidence. Absence of a complete client explanation is not by itself a framework/dependency finding.
 
         Option meanings:
@@ -255,11 +255,11 @@ tasks:
         - **devnet-network**: the environment's p2p/discovery/topology or generated network wiring is broken. Use this when the problem is the generated devnet network, not a single client implementation.
         - **config-issue**: kurtosis, assertoor-test config, or ethereum-package launch configuration produced a broken environment. Requires a concrete config mismatch, missing/incorrect flag, wrong test parameter, or launcher behavior.
         - **test-design**: the assertoor test encodes a genuinely-wrong expectation. Requires evidence that the assertion contradicts the Ethereum spec, canonical client docs, or the intended test contract.
-        - **infra-flake**: transient and non-deterministic. Use when reproduction passed, timed out, was queue-blocked before the target, or differs from prior and original artifacts are thin or contradictory.
+        - **infra-flake**: transient and non-deterministic. Use when reproduction passed, timed out, was interrupted before an assertoor outcome, was queue-blocked before the target, or differs from prior and original artifacts are thin or contradictory.
         - **mixed**: two separable mechanisms appear in the same cluster and should not be routed to one owner.
         - **unknown**: insufficient evidence to choose any of the above.
 
-        When bug-hunt did not run, do not stop at "unknown" by default. Classify from original CI artifacts, failed task tree, runtime identities, and previous-success delta when those are concrete enough. Prefer `infra-flake` only when reproduction passed/timed out/was queue-blocked and the original artifacts are thin or contradictory; prefer `config-issue` only if launch itself failed with concrete kurtosis/config errors.
+        When bug-hunt did not run, do not stop at "unknown" by default. Classify from original CI artifacts, failed task tree, runtime identities, and previous-success delta when those are concrete enough. Prefer `infra-flake` only when reproduction passed/timed out/was interrupted/was queue-blocked and the original artifacts are thin or contradictory; prefer `config-issue` only if launch itself failed with concrete kurtosis/config errors.
 
         Confidence calibration: 80+ requires affirmative evidence for the selected owner. Do not blame a downstream component solely because it exposes a symptom; tie ownership to the component whose behavior, code history, runtime logs, or input generation actually produced the mechanism.
     outputs:

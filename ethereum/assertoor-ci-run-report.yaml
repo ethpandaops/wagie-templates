@@ -337,6 +337,8 @@ inputs:
                 type: boolean
               test_result:
                 type: string
+              observed_signal:
+                type: string
               summary:
                 type: string
           regression:
@@ -516,7 +518,7 @@ tasks:
 
       2. **Top-line verdict (3-5 bullets).** Counts of: failed shards, root-cause clusters, issues created vs updated vs recurrence-only updated vs deduplicated vs skipped. When `no_failures == true`, say so prominently and skip downstream sections.
 
-      3. **Per-cluster table.** One row per cluster in publish order, including recurrence-only updates. Columns: `#`, `Cluster label`, `Classification (notify/diag confidence)`, `Issue`, `Action`, `Members`, `Affected pairs`, `Reproduced?`. The `Issue` column links to the canonical issue (use `<issue_url>` from publish_results or recurrence_publish_results). The `Action` column shows `created | updated | recurrence | deduplicated | skipped`. For final investigation rows, read labels/confidence from `cluster_reports`. For recurrence-only rows, read classification from `recurrence_cluster_reports` but render confidence as `prior diagnosis preserved` or `not rerun` instead of showing zero-valued current confidence fields. `Reproduced?` reflects the nested `reproduction` outcome (`yes`, `no (success)`, `no (timeout)`, `blocked`, `skipped`, `launch failed`) or `not rerun` for recurrence-only updates.
+      3. **Per-cluster table.** One row per cluster in publish order, including recurrence-only updates. Columns: `#`, `Cluster label`, `Classification (notify/diag confidence)`, `Issue`, `Action`, `Members`, `Affected pairs`, `Reproduced?`. The `Issue` column links to the canonical issue (use `<issue_url>` from publish_results or recurrence_publish_results). The `Action` column shows `created | updated | recurrence | deduplicated | skipped`. For final investigation rows, read labels/confidence from `cluster_reports`. For recurrence-only rows, read classification from `recurrence_cluster_reports` but render confidence as `prior diagnosis preserved` or `not rerun` instead of showing zero-valued current confidence fields. `Reproduced?` reflects the nested `reproduction` outcome (`yes`, `no (success)`, `no (timeout)`, `blocked`, `interrupted`, `skipped`, `launch failed`) or `not rerun` for recurrence-only updates.
 
       4. **Per-cluster notes.** Keep this as an index, not a duplicate copy of the canonical issue body. Use at most 3 bullets per touched issue:
          - Issue link, action, and state-check status.
