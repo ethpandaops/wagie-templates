@@ -26,12 +26,6 @@ inputs:
   context:
     type: string
     description: Optional context or constraints to guide planning
-  model:
-    type: string
-    description: "Preferred model (e.g. claude-opus-4-6). Planning benefits from strong reasoning."
-  provider:
-    type: string
-    description: "Preferred provider (e.g. claudecode, codex)"
 tasks:
   plan:
     selection:

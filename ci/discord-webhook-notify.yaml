@@ -1,0 +1,199 @@
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/discord-webhook-notify
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
+description: >-
+  Use when a CI triage workflow has finished durable issue publication and should send one compact Discord incoming-webhook notification. Posts a single best-effort rich embed from filtered final issue results; callers should only invoke it after the final publish step, not early reservation writes.
+tags: ["ci", "discord", "webhook", "notification", "triage"]
+defaults:
+  retryable: true
+  timeout: 5m
+inputs:
+  webhook_url:
+    type: secret
+    required: true
+    description: Discord incoming webhook URL secret.
+  title:
+    type: string
+    default: "CI triage issues published"
+    description: Embed title.
+  summary:
+    type: string
+    default: ""
+    description: Optional run-level markdown/plain-text context. The notifier filters per-issue details itself after confidence gating.
+  source_repo:
+    type: string
+    default: ""
+    description: Repository where the CI run happened.
+  issue_repo:
+    type: string
+    default: ""
+    description: Repository where the triage issues live.
+  workflow_ref:
+    type: string
+    default: ""
+    description: Workflow file path or filename.
+  run_id:
+    type: string
+    default: ""
+    description: GitHub Actions run id.
+  run_url:
+    type: string
+    default: ""
+    description: GitHub Actions run URL.
+  cluster_reports:
+    type: array
+    default: []
+    description: Caller-rendered cluster reports used to recover human labels, classifications, and confidence for issue links.
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          cheap_fingerprint:
+            type: string
+          human_label:
+            type: string
+          classification:
+            type: string
+          classification_confidence:
+            type: number
+          owner_confidence:
+            type: number
+          mechanism_confidence:
+            type: number
+          source_identity_confidence:
+            type: number
+          regression_pin_confidence:
+            type: number
+          diagnosis_confidence:
+            type: number
+          notification_confidence:
+            type: number
+          state_check_status:
+            type: string
+  publish_results:
+    type: array
+    default: []
+    description: Final issue upsert results. Pending/reservation publish results should not be passed here.
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          cheap_fingerprint:
+            type: string
+          issue_number:
+            type: number
+          issue_url:
+            type: string
+          action:
+            type: string
+          deduplicated_issue_numbers:
+            type: array
+            items:
+              type: number
+          note:
+            type: string
+  username:
+    type: string
+    default: "wagie ci-investigate"
+    description: Optional Discord webhook username override.
+  max_issue_links:
+    type: number
+    default: 20
+    description: Maximum issue links to include before truncating for Discord embed limits.
+  min_confidence:
+    type: number
+    default: 85
+    description: Minimum notification confidence required for an issue to be included. Set to 0 or lower to disable confidence gating for known-classification issues.
+tasks:
+  send:
+    selection:
+      capabilities: [tool-use]
+    run: discord-webhook-notify
+    quality-gate: "${{ has(result.sent) && has(result.issue_count) && has(result.omitted_issue_count) && has(result.summary) }}"
+    instructions: |-
+      Send one Discord incoming-webhook notification for a completed CI triage publish.
+
+      The `webhook_url` input is a secret resource. Use the provided secret input value according to the runtime's secret handling. Never print it, write it to disk, include it in command traces, or return it in outputs.
+
+      This task is best-effort notification plumbing. Do not fail the task merely because Discord rejects or rate-limits the message. Instead, emit `sent=false` and a concise `summary` that includes the HTTP status or reason, without including the webhook URL.
+
+      Notification policy:
+      - Send at most one Discord message.
+      - Use only final `publish_results`, not pending/reservation results.
+      - Consider actions `created`, `updated`, and `deduplicated` as touched issues. Ignore `skipped`.
+      - Apply the confidence gate per issue, not per run. Match each publish result to its cluster report by `cheap_fingerprint`.
+      - Gate on `cluster_report.notification_confidence`. Treat missing notification confidence as 0. Include a touched issue only when `cluster_report.classification != "unknown"` AND (`min_confidence <= 0` OR `notification_confidence >= min_confidence`).
+      - If there are no eligible issues, do not call Discord; return `sent=false`, `issue_count=0`, `omitted_issue_count=<number of touched issues omitted by the gate>`, and a short explanation.
+      - Keep the original order of `publish_results`.
+
+      Payload requirements:
+      - POST JSON to the webhook URL with `wait=true` appended to the query string, preserving any existing query parameters.
+      - Include `allowed_mentions: {"parse": []}` so issue titles, labels, or summaries cannot ping roles, users, `@here`, or `@everyone`.
+      - Use one `embeds` entry. Do not use interactive components.
+      - Use an embed title, `run_url` as the embed URL when present, a concise filtered description, an accent `color`, small metadata fields, issue-link fields, a footer, and an ISO-8601 UTC timestamp.
+      - Respect Discord limits: content <= 2000 chars, at most 10 embeds per message, at most 25 fields per embed, title <= 256 chars, description <= 4096 chars, each field value <= 1024 chars, and the combined embed text <= 6000 chars. Trim conservatively before sending.
+
+      Suggested embed shape:
+      - `title`: input title, adjusted with the touched issue count if useful.
+      - `description`: a notification-safe summary built AFTER confidence filtering, trimmed to about 1500 characters.
+      - metadata fields: Run, Workflow, Repos.
+      - issue fields: one or more fields named `Issues` / `Issues cont.` containing markdown bullets like `- [#12](https://...) updated - Human label (single-client notify 91%, diagnosis 58%, pin 40%)`.
+      - `footer.text`: `wagie ci-investigate`.
+
+      Build issue labels by matching `publish_results[].cheap_fingerprint` to `cluster_reports[].human_label`. Fall back to the fingerprint or issue number when no label is available. Include classification and rounded notification confidence when present; include diagnosis and regression-pin confidence when they materially differ from the notification score. Include deduplicated issue numbers in the bullet when present. Use those eligible issue bullets as the source of truth for the Discord description and issue fields.
+
+      Treat the input `summary` as optional run-level context, not as an already-safe Discord body. If it contains per-issue bullets, discard those bullets and regenerate them from the eligible issues after applying the confidence gate. It is acceptable to keep only the first headline/count line from `summary` when it does not mention omitted issues individually. Never include details for issues that failed the confidence gate or have `classification=unknown`.
+
+      If any touched issues are omitted by the confidence gate, add one concise metadata field or description suffix such as `Omitted 2 issue(s) below 85% notification confidence.`
+
+      Use `python3` with `urllib.request` or `curl` with a JSON payload. If Discord returns HTTP 429, parse `retry_after` when available, sleep at most 5 seconds, then retry once. Retry 5xx responses once after a short delay. Treat 2xx as sent.
+
+      Return:
+      - `sent`: true only when Discord accepted the message.
+      - `issue_count`: number of eligible issue results included in the notification after the confidence gate.
+      - `omitted_issue_count`: number of touched issue results omitted by unknown classification or confidence gate. Do not count skipped publish actions as touched.
+      - `summary`: short delivery result, e.g. `Sent Discord notification for 2 high-confidence issues; omitted 1 below gate.` or `Discord notification skipped: no final issues met notification confidence gate.`
+    inputs:
+      webhook_url: ${{ inputs.webhook_url }}
+      title: ${{ inputs.title }}
+      summary: ${{ inputs.summary }}
+      source_repo: ${{ inputs.source_repo }}
+      issue_repo: ${{ inputs.issue_repo }}
+      workflow_ref: ${{ inputs.workflow_ref }}
+      run_id: ${{ inputs.run_id }}
+      run_url: ${{ inputs.run_url }}
+      cluster_reports: ${{ inputs.cluster_reports }}
+      publish_results: ${{ inputs.publish_results }}
+      username: ${{ inputs.username }}
+      max_issue_links: ${{ inputs.max_issue_links }}
+      min_confidence: ${{ inputs.min_confidence }}
+    outputs:
+      sent: "${{ has(result.sent) ? result.sent : false }}"
+      issue_count: "${{ has(result.issue_count) ? result.issue_count : 0 }}"
+      omitted_issue_count: "${{ has(result.omitted_issue_count) ? result.omitted_issue_count : 0 }}"
+      summary: "${{ has(result.summary) ? result.summary : '' }}"
+      schema:
+        sent:
+          type: boolean
+          description: True when Discord accepted the webhook message.
+        issue_count:
+          type: number
+          description: Number of final touched issue results included after confidence gating.
+        omitted_issue_count:
+          type: number
+          description: Number of final touched issue results omitted by unknown classification or confidence gate. Skipped publish actions are not counted as touched.
+        summary:
+          type: string
+          description: Short delivery result.
+outputs:
+  sent: ${{ tasks.send.outputs.sent }}
+  issue_count: ${{ tasks.send.outputs.issue_count }}
+  omitted_issue_count: ${{ tasks.send.outputs.omitted_issue_count }}
+  summary: ${{ tasks.send.outputs.summary }}

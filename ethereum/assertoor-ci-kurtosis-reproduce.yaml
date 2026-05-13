@@ -1,0 +1,348 @@
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/assertoor-ci-kurtosis-reproduce
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
+description: >-
+  Use to reproduce a previously observed assertoor failure on a kurtosis-capable worker. Usually called by assertoor-ci-investigate; loops launch then await_assertoor up to reproduction_attempts times, stops early on reproduction or a faithful queue-blocked outcome, leaves the final reproduced enclave running for downstream bug-hunt, and treats non-reproduction as a first-class outcome.
+tags: ["kurtosis", "ethereum", "ethpandaops", "reproduce", "reproduction", "assertoor"]
+defaults:
+  retryable: true
+  timeout: 30h
+inputs:
+  enclave_name:
+    type: string
+    required: true
+    description: Kurtosis enclave name to create for reproduction. Reused across attempts (each attempt's launch step starts with `kurtosis enclave rm -f` so the relaunch is clean). Caller is responsible for final cleanup.
+  kurtosis_params_path:
+    type: string
+    required: true
+    description: Absolute path on the worker to the saved kurtosis-params.yaml from the failing run's enclave dump.
+  assertoor_test_name:
+    type: string
+    default: ""
+    description: Name of the assertoor test that originally failed. When non-empty, reproduction tracks only this test; otherwise the first failing test or all-success terminates the watcher.
+  package_ref:
+    type: string
+    default: "github.com/ethpandaops/ethereum-package"
+    description: Kurtosis package reference to run
+  reproduction_attempt_timeout_minutes:
+    type: number
+    default: 360
+    description: Maximum time the watcher waits PER ATTEMPT for the failing test to complete before declaring not-reproduced. Total wall-clock budget is up to `reproduction_attempts x reproduction_attempt_timeout_minutes` in the worst case (all attempts time out). Default 6h per attempt x 4 attempts = 24h ceiling, but in practice the loop exits early on first reproduction or quick test completion.
+  narrow_to_failing_test:
+    type: boolean
+    default: false
+    description: When false (default), preserve the original CI test queue for faithful reproduction. When true and `assertoor_test_name` is non-empty, patches the kurtosis args file before launch to remove every entry from `assertoor_params.tests` except the test of interest; this is faster but can hide queue/order/state bugs and should be treated as a deliberately narrowed reproduction.
+  reproduction_attempts:
+    type: number
+    default: 4
+    description: >-
+      Maximum reproduction attempts. The loop stops early on the first `reproduced=true` outcome. Every attempt uses the stock assertoor test YAML and original timeout values; retries are for non-deterministic / race-conditiony failures, not timeout mutation. For a 50% per-attempt reproduction rate the cumulative odds at the default of 4 are ~94%; for 25% per-attempt, ~68%. Bump this for stubborn / rare non-deterministic bugs.
+  prior_summary:
+    type: string
+    default: ""
+    description: CI-side prior AI summary describing the original failure mode. The watcher uses it to flag when a reproduction is the same vs. a different failure.
+tasks:
+  attempt_loop:
+    loop:
+      max: "${{ inputs.reproduction_attempts }}"
+      init:
+        reproduced: "${{ false }}"
+        launched: "${{ false }}"
+        assertoor_url: "${{ '' }}"
+        services: "${{ [] }}"
+        launch_summary: "${{ '' }}"
+        test_result: "${{ '' }}"
+        reproduction_summary: "${{ '' }}"
+        evidence: "${{ [] }}"
+        matches_prior: "${{ false }}"
+        attempt_log: "${{ '' }}"
+      until: "${{ loop.reproduced == true || loop.test_result == 'blocked' }}"
+      on-max-exhausted: continue
+    inputs:
+      enclave_name: ${{ inputs.enclave_name }}
+      kurtosis_params_path: ${{ inputs.kurtosis_params_path }}
+      package_ref: ${{ inputs.package_ref }}
+      assertoor_test_name: ${{ inputs.assertoor_test_name }}
+      reproduction_attempt_timeout_minutes: ${{ inputs.reproduction_attempt_timeout_minutes }}
+      narrow_to_failing_test: ${{ inputs.narrow_to_failing_test }}
+      iteration: "${{ loop.iteration }}"
+      prior_summary: ${{ inputs.prior_summary }}
+      prev_attempt_log: "${{ loop.attempt_log }}"
+    tasks:
+      launch:
+        selection:
+          capabilities: [tool-use]
+          labels: [kurtosis]
+        run: launch-assertoor-ci-kurtosis-reproduce
+        quality-gate: "${{ has(result.launched) }}"
+        instructions: |-
+          Launch a Kurtosis Ethereum enclave from the saved args file so assertoor can run the failing test against a freshly-booted network.
+
+          Procedure:
+          1. Best-effort remove any prior enclave with the same name: `kurtosis enclave rm -f <enclave_name>` (ignore errors when it does not exist). REQUIRED between reproduction attempts so each retry starts on a clean network.
+
+          2. Prepare the launch args file for this attempt. Every attempt uses the stock assertoor test YAML and original timeout values.
+             - When `narrow_to_failing_test == false`: use the original args file as-is (full CI queue). This is the default and is the faithful reproduction mode.
+             - When `narrow_to_failing_test == true` AND `assertoor_test_name` is non-empty: filter `assertoor_params.tests` to entries whose URL/path ends in `/<assertoor_test_name>.yaml` (case-insensitive). Use `yq` (preferred) or `python3` with PyYAML — never hand-rolled sed/awk. Mark the launch summary as narrowed/non-faithful unless downstream evidence proves the shape still matches.
+             - Write the result to `<kurtosis_params_path>.attempt-<iteration>.yaml`. This is the launch args file. Do not download, rewrite, inline, register, or schedule test YAML manually.
+
+          3. Launch kurtosis: `kurtosis run --enclave <enclave_name> <package_ref> --args-file <chosen_args_file> --non-blocking-tasks --image-download missing`.
+
+          4. After the run command returns, inspect: `kurtosis enclave inspect <enclave_name>`. Locate the `assertoor` service and record its exposed HTTP URL as `assertoor_url`. Record the full service list as `services`.
+
+          5. Outcomes:
+             - If `kurtosis run` failed before assertoor came up: set `launched=false`, include the last 30 lines of kurtosis output in `launch_summary`.
+             - Otherwise: set `launched=true`. 2-3 sentence `launch_summary` covering startup duration, any warnings, and whether the test list was narrowed or the full CI queue was preserved.
+
+          Do NOT remove the enclave at the end of this task.
+        inputs:
+          enclave_name: ${{ inputs.enclave_name }}
+          kurtosis_params_path: ${{ inputs.kurtosis_params_path }}
+          package_ref: ${{ inputs.package_ref }}
+          assertoor_test_name: ${{ inputs.assertoor_test_name }}
+          narrow_to_failing_test: ${{ inputs.narrow_to_failing_test }}
+          iteration: ${{ inputs.iteration }}
+        outputs:
+          launched: ${{ result.launched }}
+          assertoor_url: "${{ has(result.assertoor_url) ? result.assertoor_url : '' }}"
+          services: "${{ has(result.services) ? result.services : [] }}"
+          launch_summary: "${{ has(result.launch_summary) ? result.launch_summary : '' }}"
+          schema:
+            launched:
+              type: boolean
+              description: True when kurtosis run succeeded AND the assertoor service is reachable
+            assertoor_url:
+              type: string
+              description: Assertoor API base URL (empty when launch failed)
+            services:
+              type: array
+              items:
+                type: string
+              description: Names of all services in the enclave
+            launch_summary:
+              type: string
+              description: Concise launch result; includes failure tail when launched=false
+      await_assertoor:
+        needs: [launch]
+        if: "${{ tasks.launch.outputs.launched == true }}"
+        selection:
+          capabilities: [tool-use]
+          labels: [kurtosis]
+        run: await-assertoor-reproduction
+        timeout: 30h
+        quality-gate: "${{ has(result.reproduced) && has(result.test_result) }}"
+        instructions: |-
+          Watch the assertoor API to determine whether the originally-failing test recurred. Emit the structured output only when the test reaches a terminal status, the full queue is blocked by an earlier terminal failure before the target starts, OR cumulative wait exceeds `reproduction_attempt_timeout_minutes`.
+
+          **Pattern: foreground chunked polling.** Some agents cap a single shell call below the full assertoor timeout. Poll in foreground chunks of about 8-9 minutes, print one compact status line about every 30 seconds, then immediately continue with another foreground polling call until terminal, blocked, or the cumulative `reproduction_attempt_timeout_minutes` budget is reached. Do not use async watchers, `nohup`, background pollers, or fire-and-forget notifications. After a chunk prints `CHUNK_EXHAUSTED`, the next action MUST be another foreground polling shell call; do not summarize, wait, or emit output unless a terminal signal was observed.
+
+          Procedure:
+
+          1. The assertoor base URL is `<assertoor_url>`. List tests via `<assertoor_url>/api/v1/tests`; per-run detail at `<assertoor_url>/api/v1/test_run/<run_id>`.
+
+          2. Identify the test of interest. If `assertoor_test_name` is non-empty: list `/api/v1/test_runs` and find the run whose `test_id` or `name` matches; capture its numeric `run_id`. If no run exists yet, wait 10-20s and retry the list because the launch step has just scheduled it. While waiting, inspect all visible test runs in queue/order fields when available (`id`, `run_id`, `test_id`, `name`, `status`, `result`, `created_at`, `started_at`). If an earlier visible run reaches terminal `failure` and the target run still does not exist, emit `reproduced=false`, `test_result="blocked"`, and a reproduction_summary explaining that the faithful full queue did not reach the target because an earlier test failed. Include the blocking test id/name/result in `evidence`. After the target run exists, keep checking queue/global run state until the target has actually started; if the target remains queued/pending/not-started behind an earlier terminal failure, emit the same blocked outcome instead of waiting for the full timeout. If `assertoor_test_name` is empty: watch all runs and treat the first one to enter `failure` as the reproduction signal (resolve its `run_id` the same way once it appears).
+
+          3. Poll the target run in foreground chunks. Persist a small state file containing the first poll timestamp so retries continue the same cumulative timeout budget. Do not source that state file as shell; read the numeric `START=` value. Each chunk should:
+             - Query `/api/v1/test_run/<run_id>`.
+             - Query `/api/v1/test_runs` to detect an earlier terminal failure blocking the target before it starts.
+             - Print `STATUS elapsed=<s> status=<status> result=<result> tasks=<complete>/<total> running=[...] prior_running=[...] prior_failed=[...]` every ~30 seconds.
+             - Stop immediately on terminal, blocked, or cumulative timeout.
+
+             Suggested shell shape:
+
+             ```bash
+             ASSERTOOR_URL="<assertoor_url>"
+             RUN_ID=<resolved-numeric-run-id>
+             TIMEOUT_MIN=<reproduction_attempt_timeout_minutes>
+             PORT=<assertoor-port>
+             STATE="./await-state-${PORT}.env"
+             FINAL="./await-final-${PORT}.json"
+             BLOCKED="./await-blocked-${PORT}.txt"
+             [ -f "$STATE" ] || printf 'START=%s\n' "$(date +%s)" > "$STATE"
+             START=$(sed -n 's/^START=//p' "$STATE" | head -n 1)
+             case "$START" in
+               ''|*[!0-9]*)
+                 START=$(date +%s)
+                 printf 'START=%s\n' "$START" > "$STATE"
+                 ;;
+             esac
+             TIMEOUT_S=$(( TIMEOUT_MIN * 60 ))
+             END=$(( $(date +%s) + 540 ))
+             while [ $(date +%s) -lt $END ]; do
+               NOW=$(date +%s); ELAPSED=$(( NOW - START ))
+               if [ "$ELAPSED" -ge "$TIMEOUT_S" ]; then
+                 echo "TIMEOUT_REACHED elapsed=${ELAPSED}s"; exit 0
+               fi
+               RESP=$(curl -s --max-time 10 "$ASSERTOOR_URL/api/v1/test_run/$RUN_ID")
+               STATUS=$(printf '%s' "$RESP" | jq -r '.data.status // "unknown"')
+               RESULT=$(printf '%s' "$RESP" | jq -r '.data.result // "-"')
+               STARTED=$(printf '%s' "$RESP" | jq -r '.data.started_at // .data.start_time // .data.startedAt // ""')
+               RUNS=$(curl -s --max-time 10 "$ASSERTOOR_URL/api/v1/test_runs")
+               PRIOR_FAILED=$(printf '%s' "$RUNS" | jq -r --argjson target "$RUN_ID" '[.data[]? | {id:(.run_id // .id // 0), name:(.name // .test_id // "unknown"), status:(.status // ""), result:(.result // "")} | select(.id < $target) | select((.status == "failure") or (.status == "failed") or (.status == "error") or (.status == "complete" and .result == "failure") or (.status == "completed" and .result == "failure") or (.result == "failure") or (.result == "failed") or (.result == "error")) | "id=" + (.id|tostring) + " name=" + .name + " status=" + .status + " result=" + .result] | join("; ")')
+               PRIOR_RUNNING=$(printf '%s' "$RUNS" | jq -r --argjson target "$RUN_ID" '[.data[]? | {id:(.run_id // .id // 0), name:(.name // .test_id // "unknown"), status:(.status // ""), result:(.result // "")} | select(.id < $target) | select((.status == "running") or (.status == "pending") or (.status == "queued") or (.status == "scheduled")) | "id=" + (.id|tostring) + " name=" + .name + " status=" + .status] | join("; ")')
+               if [ -n "$PRIOR_FAILED" ] && { [ -z "$STARTED" ] || [ "$STARTED" = "0" ] || [ "$STATUS" = "pending" ] || [ "$STATUS" = "queued" ] || [ "$STATUS" = "scheduled" ]; }; then
+                 printf '%s\n' "$PRIOR_FAILED" > "$BLOCKED"
+                 echo "BLOCKED elapsed=${ELAPSED}s blocker=[$PRIOR_FAILED]"
+                 exit 0
+               fi
+               COMPLETE=$(printf '%s' "$RESP" | jq -r '[.data.tasks[]? | select((.completed == true) or (.status == "complete") or (.status == "completed") or (.status == "success"))] | length')
+               TOTAL=$(printf '%s' "$RESP" | jq -r '.data.tasks // [] | length')
+               CURRENT=$(printf '%s' "$RESP" | jq -r '[.data.tasks[]? | select(.status == "running") | .name] | join(",")')
+               echo "STATUS elapsed=${ELAPSED}s status=$STATUS result=$RESULT tasks=${COMPLETE}/${TOTAL} running=[${CURRENT}] prior_running=[${PRIOR_RUNNING}] prior_failed=[${PRIOR_FAILED}]"
+               TERMINAL=false
+               case "$STATUS" in
+                 success|complete|completed|failure|failed|error|cancelled|canceled) TERMINAL=true ;;
+               esac
+               case "$RESULT" in
+                 success|failure|failed|error|cancelled|canceled) TERMINAL=true ;;
+               esac
+               if [ "$TERMINAL" = true ]; then
+                 printf '%s\n' "$RESP" > "$FINAL"
+                 echo "TERMINAL elapsed=${ELAPSED}s status=$STATUS result=$RESULT"
+                 exit 0
+               fi
+               sleep 30
+             done
+             echo "CHUNK_EXHAUSTED continue polling"
+             ```
+
+          4. After each foreground chunk, inspect the output:
+               - Contains `TERMINAL ...` → read `await-final-<port>.json`, derive structured outputs (step 5), emit, done.
+               - Contains `BLOCKED ...` → read `await-blocked-<port>.txt` when present, emit `reproduced=false, test_result="blocked"`, done.
+               - Contains `TIMEOUT_REACHED ...` → emit `reproduced=false, test_result="timeout"`, done.
+               - During target-run discovery, earlier queued test failed before the target existed → emit `reproduced=false, test_result="blocked"`, done.
+               - Contains `CHUNK_EXHAUSTED` → immediately run another foreground chunk. Repeat until terminal or cumulative timeout.
+
+             **Crucial rule: do not emit structured output until you have observed `TERMINAL`, `BLOCKED`, or `TIMEOUT_REACHED` in the chunk output.** Premature emission produces false `test_result=timeout` outputs that corrupt downstream classification. Keep polling via repeated synchronous shell calls until one terminal signal appears.
+
+             Do NOT `ls` or `stat` the final JSON during the wait — it only exists after `TERMINAL` is written, and `ls` on a missing file returns non-zero which marks your tool call as failed. The `TERMINAL` line is the signal; read the JSON only after you see it.
+
+          5. Outcomes:
+             - Terminal failure: when final status or result indicates `failure`, `failed`, or `error`, set `reproduced=true`, `test_result="failure"`. From `data.tasks[]` in the saved final JSON, capture the failing task titles/names, statuses/results, and 5-10 lines of `result_error` or surrounding context into `evidence`.
+             - Terminal success: when final status or result indicates `success`, `complete`, or `completed` without failure evidence, set `reproduced=false`, `test_result="success"`. The original failure did NOT recur.
+             - Timeout: `reproduced=false`, `test_result="timeout"`. Note elapsed minutes, last-observed target status/result, currently running task titles/runtimes, and prior queued/running tests in `reproduction_summary`.
+             - Queue blocked before target: `reproduced=false`, `test_result="blocked"`. Explain that faithful full-queue reproduction did not reach the target because a prior test failed; this is a different outcome from target test success or timeout.
+
+          6. When `reproduced=true` AND `prior_summary` is non-empty: compare the failed-task evidence against the prior summary. Note in `reproduction_summary` whether the reproduction matches (`matches prior`) or appears to be a different failure mode (`different mode - investigate as new`).
+
+          7. Cleanup: remove the state files (`rm -f await-state-<port>.env await-final-<port>.json await-blocked-<port>.txt`) before emitting structured output, so a subsequent attempt in the same loop starts fresh.
+
+          Keep `reproduction_summary` to 4-6 sentences. Do NOT remove the enclave at the end of this task.
+        inputs:
+          assertoor_url: ${{ tasks.launch.outputs.assertoor_url }}
+          assertoor_test_name: ${{ inputs.assertoor_test_name }}
+          reproduction_attempt_timeout_minutes: ${{ inputs.reproduction_attempt_timeout_minutes }}
+          prior_summary: ${{ inputs.prior_summary }}
+        outputs:
+          reproduced: ${{ result.reproduced }}
+          test_result: ${{ result.test_result }}
+          reproduction_summary: "${{ has(result.reproduction_summary) ? result.reproduction_summary : '' }}"
+          evidence: "${{ has(result.evidence) ? result.evidence : [] }}"
+          matches_prior: "${{ has(result.matches_prior) ? result.matches_prior : false }}"
+          schema:
+            reproduced:
+              type: boolean
+            test_result:
+              type: string
+              enum: [failure, success, timeout, blocked]
+            reproduction_summary:
+              type: string
+            evidence:
+              type: array
+              items:
+                type: string
+            matches_prior:
+              type: boolean
+              description: True when the reproduction's failure mode appears to match the prior_summary (only meaningful when reproduced=true and prior_summary was provided)
+      log_attempt:
+        needs: [launch, await_assertoor]
+        selection:
+          capabilities: [reasoning]
+        run: log-reproduce-attempt
+        quality-gate: "${{ has(result.line) && size(result.line) > 0 }}"
+        instructions: |-
+          Produce a single-line summary of this reproduction attempt for the rolling attempt_log.
+
+          Format: `attempt <N>: launched=<bool>, reproduced=<bool>, test_result=<value>, note=<short>`
+
+          - `<N>` is the loop iteration (1-indexed).
+          - `<note>` is a 5-15 word description: when reproduced, the failure mode; when not reproduced (success), `"test passed - no recurrence"`; when blocked, `"full queue blocked before target test"`; when timeout, `"watcher hit reproduction_attempt_timeout_minutes deadline"`; when launch failed, the launch_summary tail.
+
+          Cap the line at 250 characters; strip ANSI/control characters. One line only — no embedded newlines.
+        inputs:
+          launched: ${{ tasks.launch.outputs.launched }}
+          reproduced: "${{ has(tasks.await_assertoor.outputs.reproduced) ? tasks.await_assertoor.outputs.reproduced : false }}"
+          test_result: "${{ has(tasks.await_assertoor.outputs.test_result) ? tasks.await_assertoor.outputs.test_result : 'launch-failed' }}"
+          launch_summary: ${{ tasks.launch.outputs.launch_summary }}
+          reproduction_summary: "${{ has(tasks.await_assertoor.outputs.reproduction_summary) ? tasks.await_assertoor.outputs.reproduction_summary : '' }}"
+          iteration: ${{ inputs.iteration }}
+        outputs:
+          line: ${{ result.line }}
+          schema:
+            line:
+              type: string
+    outputs:
+      launched: ${{ tasks.launch.outputs.launched }}
+      assertoor_url: "${{ has(tasks.launch.outputs.assertoor_url) ? tasks.launch.outputs.assertoor_url : '' }}"
+      services: "${{ has(tasks.launch.outputs.services) ? tasks.launch.outputs.services : [] }}"
+      launch_summary: "${{ has(tasks.launch.outputs.launch_summary) ? tasks.launch.outputs.launch_summary : '' }}"
+      reproduced: "${{ has(tasks.await_assertoor.outputs.reproduced) ? tasks.await_assertoor.outputs.reproduced : false }}"
+      test_result: "${{ has(tasks.await_assertoor.outputs.test_result) ? tasks.await_assertoor.outputs.test_result : 'launch-failed' }}"
+      reproduction_summary: "${{ has(tasks.await_assertoor.outputs.reproduction_summary) ? tasks.await_assertoor.outputs.reproduction_summary : '' }}"
+      evidence: "${{ has(tasks.await_assertoor.outputs.evidence) ? tasks.await_assertoor.outputs.evidence : [] }}"
+      matches_prior: "${{ has(tasks.await_assertoor.outputs.matches_prior) ? tasks.await_assertoor.outputs.matches_prior : false }}"
+      attempt_log: '${{ inputs.prev_attempt_log + "\n" + tasks.log_attempt.outputs.line }}'
+      schema:
+        launched:
+          type: boolean
+        assertoor_url:
+          type: string
+        services:
+          type: array
+          items:
+            type: string
+        launch_summary:
+          type: string
+        reproduced:
+          type: boolean
+        test_result:
+          type: string
+        reproduction_summary:
+          type: string
+        evidence:
+          type: array
+          items:
+            type: string
+        matches_prior:
+          type: boolean
+        attempt_log:
+          type: string
+finally:
+  cleanup_on_failure:
+    if: "${{ tasks.attempt_loop.outputs.launched == true && tasks.attempt_loop.outputs.reproduced != true }}"
+    uses: io.ethpandaops/kurtosis-enclave-cleanup@1.0.0
+    inputs:
+      enclave_name: ${{ inputs.enclave_name }}
+      force: true
+    outputs:
+      removed: removed
+      summary: summary
+outputs:
+  launched: ${{ tasks.attempt_loop.outputs.launched }}
+  enclave_name: ${{ inputs.enclave_name }}
+  assertoor_url: ${{ tasks.attempt_loop.outputs.assertoor_url }}
+  services: ${{ tasks.attempt_loop.outputs.services }}
+  launch_summary: ${{ tasks.attempt_loop.outputs.launch_summary }}
+  reproduced: ${{ tasks.attempt_loop.outputs.reproduced }}
+  test_result: ${{ tasks.attempt_loop.outputs.test_result }}
+  reproduction_summary: ${{ tasks.attempt_loop.outputs.reproduction_summary }}
+  evidence: ${{ tasks.attempt_loop.outputs.evidence }}
+  matches_prior: ${{ tasks.attempt_loop.outputs.matches_prior }}
+  attempts_made: ${{ tasks.attempt_loop.loop.iteration }}
+  attempts_converged: ${{ tasks.attempt_loop.loop.converged }}
+  attempt_log: ${{ tasks.attempt_loop.outputs.attempt_log }}

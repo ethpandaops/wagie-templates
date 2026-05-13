@@ -30,24 +30,6 @@ inputs:
     type: number
     default: 5
     description: Maximum research iterations
-  planning_model:
-    type: string
-    description: "Model for planning and decomposition (e.g. claude-opus-4-6). Benefits from strong reasoning."
-  planning_provider:
-    type: string
-    description: "Provider for planning (e.g. claudecode, codex)"
-  investigation_model:
-    type: string
-    description: "Model for investigation iterations (e.g. claude-sonnet-4-6). High-volume; cheaper models work well."
-  investigation_provider:
-    type: string
-    description: "Provider for investigation (e.g. claudecode, codex)"
-  verification_model:
-    type: string
-    description: "Model for verification and synthesis (e.g. claude-opus-4-6). Benefits from strong reasoning."
-  verification_provider:
-    type: string
-    description: "Provider for verification and synthesis (e.g. claudecode, codex)"
 tasks:
   plan:
     uses: io.ethpandaops/research-plan@1.0.0
@@ -55,8 +37,6 @@ tasks:
       topic: "${{ inputs.topic }}"
       depth: "${{ inputs.depth }}"
       context: "${{ inputs.?context }}"
-      model: "${{ inputs.?planning_model }}"
-      provider: "${{ inputs.?planning_provider }}"
     outputs:
       perspectives: perspectives
       questions: questions
@@ -79,8 +59,6 @@ tasks:
       gaps: "${{ loop.gaps }}"
       previous_gap_count: "${{ loop.gap_count }}"
       plan_questions: "${{ tasks.plan.outputs.questions }}"
-      investigation_model: "${{ inputs.?investigation_model }}"
-      investigation_provider: "${{ inputs.?investigation_provider }}"
     tasks:
       investigate:
         uses: io.ethpandaops/research-findings@1.0.0
@@ -89,8 +67,6 @@ tasks:
           previous_findings: "${{ inputs.previous_findings }}"
           gaps: "${{ inputs.gaps }}"
           plan_questions: "${{ inputs.plan_questions }}"
-          model: "${{ inputs.?investigation_model }}"
-          provider: "${{ inputs.?investigation_provider }}"
         outputs:
           findings: findings
       accumulate:
@@ -151,8 +127,6 @@ tasks:
           findings: "${{ tasks.accumulate.outputs.findings }}"
           previous_gap_count: "${{ inputs.previous_gap_count }}"
           plan_questions: "${{ inputs.plan_questions }}"
-          model: "${{ inputs.?investigation_model }}"
-          provider: "${{ inputs.?investigation_provider }}"
         outputs:
           completeness: completeness
           gaps: gaps
@@ -230,8 +204,6 @@ tasks:
       topic: "${{ inputs.topic }}"
       findings: "${{ tasks.research.outputs.findings }}"
       perspectives: "${{ tasks.plan.outputs.perspectives }}"
-      model: "${{ inputs.?verification_model }}"
-      provider: "${{ inputs.?verification_provider }}"
     outputs:
       verified_findings: verified_findings
       issues: issues

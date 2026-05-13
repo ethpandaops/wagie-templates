@@ -112,8 +112,8 @@ github.com/ethpandaops/openrouter-agent-sdk-go v0.0.4 h1:0Rdvrjq9jeQAKuMgoLRpcvz
 github.com/ethpandaops/openrouter-agent-sdk-go v0.0.4/go.mod h1:LIjG62ACIMI1Zf3HV4cE03fbDT/th2bRqddcOZ7Vyqc=
 github.com/ethpandaops/vllm-agent-sdk-go v0.0.2 h1:KmeBpMvFnGj1tdcazbZTvGAXJwPYWPcRIYfwt0joiiU=
 github.com/ethpandaops/vllm-agent-sdk-go v0.0.2/go.mod h1:0tzLe27JdocwZAOS5vGotm/phYrAZA6Bq7tEhuqgSF8=
-github.com/ethpandaops/wagie v0.0.61 h1:2qbdjlfEsuWZUNXAprE1ibOxYlRW0D8mQ6wWGBHE0kw=
-github.com/ethpandaops/wagie v0.0.61/go.mod h1:uvddKiBaafa8TET80QqhTqu+lUSzYh+UtyGGHXNZ/Gk=
+github.com/ethpandaops/wagie v0.0.63 h1:qulpdxlNTcFELaHpBRmP5+hSREeK8hvBqvm3iQ8MIMU=
+github.com/ethpandaops/wagie v0.0.63/go.mod h1:uvddKiBaafa8TET80QqhTqu+lUSzYh+UtyGGHXNZ/Gk=
 github.com/fatih/color v1.19.0 h1:Zp3PiM21/9Ld6FzSKyL5c/BULoe/ONr9KlbYVOfG8+w=
 github.com/fatih/color v1.19.0/go.mod h1:zNk67I0ZUT1bEGsSGyCZYZNrHuTkJJB+r6Q9VuMi0LE=
 github.com/fxamacker/cbor/v2 v2.9.1 h1:2rWm8B193Ll4VdjsJY28jxs70IdDsHRWgQYAI80+rMQ=

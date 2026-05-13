@@ -8,6 +8,7 @@ Current families:
 
 - `ethereum/`: devnet and Kurtosis Ethereum workflows
 - `code/`: code-review and code-quality workflows
+- `ci/`: CI failure triage and GitHub issue state workflows
 - `research/`: iterative research workflows
 - `experiments/`: autonomous experiment loops (metric-driven hillclimb over any git-tracked artifact)
 
@@ -17,8 +18,9 @@ Keep family directories shallow. Do not reintroduce a `templates/` wrapper here.
 
 Within a family, some templates are user-facing entry points and others are internal building blocks composed by those entry points. Current roles:
 
-- `ethereum/`: entry points are `devnet-debug`, `kurtosis-ethereum-bug-hunt`, `kurtosis-ethereum-network-lifecycle`, `kurtosis-ethereum-config`. The rest (`devnet-context`, `devnet-baseline`, `devnet-finality-assessment`, `devnet-notes`, `devnet-topology-profile`, `devnet-report`, `kurtosis-ethereum-devnet-config`, `kurtosis-ethereum-reference`, `kurtosis-enclave-*`) are building blocks, most also callable standalone.
-- `code/`: entry points are `code-review-committee`, `code-review-fix-loop`, `code-review-adversarial`, `code-verification`. `code-diff` and `code-reviewer` are building blocks.
+- `ethereum/`: entry points are `devnet-debug`, `kurtosis-ethereum-bug-hunt`, `kurtosis-ethereum-network-lifecycle`, `kurtosis-ethereum-config`, `assertoor-ci-investigate`. The rest (`devnet-context`, `devnet-baseline`, `devnet-finality-assessment`, `devnet-notes`, `devnet-topology-profile`, `devnet-report`, `kurtosis-ethereum-devnet-config`, `kurtosis-ethereum-reference`, `kurtosis-enclave-*`, `assertoor-ci-normalize`, `assertoor-ci-fingerprint`, `assertoor-ci-classify`, `assertoor-ci-cluster-investigate`, `assertoor-ci-issue-render`, `assertoor-ci-run-report`, `assertoor-ci-test-inspect`, `assertoor-ci-regression-window`, `assertoor-ci-kurtosis-reproduce`, `ethereum-client-image-resolve`, `ethereum-component-source-dive`, `ethereum-package-launcher-audit`) are building blocks, most also callable standalone.
+- `code/`: entry points are `code-review-committee`, `code-review-fix-loop`, `code-review-adversarial`, `code-verification`. `code-diff`, `code-reviewer`, `code-evidence-locate`, and `source-investigation-committee` are building blocks.
+- `ci/`: building blocks are `github-actions-failure-fetch`, `failure-cluster`, `ci-investigate-issue-context`, `ci-investigate-issue-state-check`, `ci-investigate-worklist`, `ci-investigate-issue-upsert-by-fingerprint`, and `discord-webhook-notify`. Domain-specific adapters, fingerprinting, and issue rendering should live in the family that owns the artifact format, such as `ethereum/assertoor-ci-investigate`.
 - `research/`: entry point is `deep-research`. `research-plan`, `research-findings`, `research-coverage-assess`, `research-verify` are building blocks, callable standalone for one-shot use.
 - `experiments/`: entry point is `experiment-loop`. The setup task inside the template handles discovery (resolving target files, setup/benchmark/correctness commands, metric name from the repo + goal) so callers only need to supply `repo_url`, `goal`, and `result_branch` in the common case. All discovered parameters can be overridden explicitly.
 

@@ -57,12 +57,6 @@ inputs:
           difficulty:
             type: string
         required: [question]
-  model:
-    type: string
-    description: "Preferred model (e.g. claude-sonnet-4-6). Investigation is high-volume; cheaper models work well."
-  provider:
-    type: string
-    description: "Preferred provider (e.g. claudecode, codex)"
   plan_questions:
     type: array
     default: []

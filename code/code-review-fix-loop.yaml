@@ -41,27 +41,10 @@ inputs:
           severity_default:
             type: string
             description: "Default severity for findings from this persona"
-          model:
-            type: string
-            description: "Preferred model for this reviewer (e.g. claude-opus-4-6, gpt-5.3)"
-          provider:
-            type: string
-            description: "Preferred provider for this reviewer (e.g. claudecode, codex)"
           requires_tools:
             type: boolean
             description: "Whether this persona needs tool-use capability (e.g. web search, doc lookup)"
         required: [role, focus]
-  providers:
-    type: array
-    description: >-
-      Optional provider axis. When non-empty, each persona fans out across these
-      providers every iteration (e.g. ['claudecode', 'codex']). Personas that
-      pin their own provider skip the fan-out. When omitted, the committee's
-      own default applies.
-    schema:
-      type: array
-      items:
-        type: string
   repo:
     type: string
     description: "Repository to clone for verification (owner/name or full URL). When provided, enables test/lint/typecheck verification after each fix."
@@ -118,7 +101,6 @@ tasks:
       ref: "${{ inputs.?ref }}"
       context: "${{ inputs.?context }}"
       personas: "${{ inputs.?personas }}"
-      providers: "${{ inputs.?providers }}"
       checks: "${{ inputs.?checks }}"
       threshold: "${{ inputs.threshold }}"
       prev_findings_count: "${{ loop.findings_count }}"
@@ -132,7 +114,6 @@ tasks:
         inputs:
           diff: "${{ inputs.diff }}"
           personas: "${{ inputs.?personas }}"
-          providers: "${{ inputs.?providers }}"
           repo: "${{ inputs.?repo }}"
           ref: "${{ inputs.?ref }}"
           context: "${{ inputs.?context }}"

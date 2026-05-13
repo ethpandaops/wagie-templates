@@ -10,6 +10,8 @@ import (
 	"github.com/ethpandaops/wagie"
 )
 
+const templateSource = "wagie-templates"
+
 func TestTemplatesValidateAgainstCombinedLibrary(t *testing.T) {
 	t.Parallel()
 
@@ -22,10 +24,11 @@ func TestTemplatesValidateAgainstCombinedLibrary(t *testing.T) {
 		path   string
 		source string
 	}{
-		{path: "ethereum", source: "wagie-templates"},
-		{path: "code", source: "wagie-templates"},
-		{path: "research", source: "wagie-templates"},
-		{path: "experiments", source: "wagie-templates"},
+		{path: "ethereum", source: templateSource},
+		{path: "code", source: templateSource},
+		{path: "research", source: templateSource},
+		{path: "experiments", source: templateSource},
+		{path: "ci", source: templateSource},
 	}
 
 	files := make([]wagie.TemplateFile, 0, len(coreFiles)+64)

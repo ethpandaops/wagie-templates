@@ -41,12 +41,6 @@ inputs:
           contradictions:
             type: string
         required: [claim, evidence, confidence]
-  model:
-    type: string
-    description: "Preferred model (e.g. claude-opus-4-6). Verification benefits from strong reasoning."
-  provider:
-    type: string
-    description: "Preferred provider (e.g. claudecode, codex)"
   perspectives:
     type: array
     default: []

@@ -2,7 +2,7 @@ module github.com/ethpandaops/wagie-templates
 
 go 1.26.3
 
-require github.com/ethpandaops/wagie v0.0.61
+require github.com/ethpandaops/wagie v0.0.63
 
 require (
 	cel.dev/expr v0.25.1 // indirect

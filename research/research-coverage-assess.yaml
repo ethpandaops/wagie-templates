@@ -49,12 +49,6 @@ inputs:
     type: number
     default: 0
     description: Number of gaps identified in the previous iteration
-  model:
-    type: string
-    description: "Preferred model (e.g. claude-sonnet-4-6)"
-  provider:
-    type: string
-    description: "Preferred provider (e.g. claudecode, codex)"
   plan_questions:
     type: array
     default: []

@@ -38,12 +38,6 @@ inputs:
         severity_default:
           type: string
           description: "Default severity for findings from this persona (critical, high, medium, low)"
-        model:
-          type: string
-          description: "Preferred model for this reviewer (e.g. claude-opus-4-6, gpt-5.3)"
-        provider:
-          type: string
-          description: "Preferred provider for this reviewer (e.g. claudecode, codex)"
         requires_tools:
           type: boolean
           description: "Whether this persona needs tool-use capability (e.g. web search, doc lookup). When true, the worker must have tool-use in addition to reasoning."
@@ -76,12 +70,6 @@ inputs:
             type: string
             description: Why this was dismissed as a false positive
         required: [finding, reasoning]
-  provider_override:
-    type: string
-    description: "Provider to run this review on (takes precedence over persona.provider). Used by the committee to fan a single persona out across providers."
-  model_override:
-    type: string
-    description: "Model to run this review on (takes precedence over persona.model). Used by the committee to fan a single persona out across models."
 tasks:
   review:
     selection:

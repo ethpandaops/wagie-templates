@@ -1,0 +1,859 @@
+kind: Template
+schemaVersion: wagie/v1
+id: io.ethpandaops/assertoor-ci-issue-render
+version: "1.0.0"
+license: MIT
+authors: [savid]
+homepage: https://github.com/ethpandaops/wagie-templates
+repository: https://github.com/ethpandaops/wagie-templates
+description: >-
+  Use when assertoor CI triage needs canonical GitHub issue bodies for pending or completed per-cluster investigations. Usually called by assertoor-ci-investigate before ci-investigate-issue-upsert-by-fingerprint.
+tags: ["assertoor", "ci", "github-issues", "triage", "render"]
+defaults:
+  retryable: true
+  timeout: 30m
+inputs:
+  mode:
+    type: string
+    required: true
+    options: [pending, final, recurrence]
+    description: Render pending reservation bodies, final completed investigation bodies, or recurrence-only updates for already-complete issues.
+  clusters:
+    type: array
+    default: []
+    description: Cluster objects aligned with cluster_fingerprints, cluster_human_labels, and statuses. Required for pending mode.
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          cheap_fingerprint:
+            type: string
+          human_label:
+            type: string
+          representative_index:
+            type: number
+          member_shard_ids:
+            type: array
+            items:
+              type: string
+          member_count:
+            type: number
+  cluster_fingerprints:
+    type: array
+    default: []
+    description: Cheap fingerprints aligned with clusters. Required for pending mode.
+    schema:
+      type: array
+      items:
+        type: string
+  cluster_human_labels:
+    type: array
+    default: []
+    description: Human labels aligned with clusters. Required for pending mode.
+    schema:
+      type: array
+      items:
+        type: string
+  statuses:
+    type: array
+    default: []
+    description: State-check statuses aligned with clusters.
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          fingerprint:
+            type: string
+          status:
+            type: string
+          issue_number:
+            type: number
+          issue_url:
+            type: string
+          issue_state:
+            type: string
+          classification:
+            type: string
+          first_seen_run:
+            type: string
+          last_seen_run:
+            type: string
+          last_seen_at:
+            type: string
+          last_investigated_run:
+            type: string
+          last_investigated_at:
+            type: string
+          title_locked:
+            type: boolean
+  raw_findings:
+    type: array
+    default: []
+    description: Nested per-cluster investigation findings from assertoor-ci-investigate. Required for final mode.
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          cluster_idx:
+            type: number
+          cheap_fingerprint:
+            type: string
+          human_label:
+            type: string
+          cluster:
+            type: object
+            properties:
+              member_shard_ids:
+                type: array
+                items:
+                  type: string
+              representative_index:
+                type: number
+              member_count:
+                type: number
+              member_indices:
+                type: array
+                items:
+                  type: number
+              rationale:
+                type: string
+          status:
+            type: object
+            properties:
+              status:
+                type: string
+              issue_number:
+                type: number
+              issue_url:
+                type: string
+              issue_state:
+                type: string
+              classification:
+                type: string
+              first_seen_run:
+                type: string
+              last_seen_run:
+                type: string
+              last_seen_at:
+                type: string
+              last_investigated_run:
+                type: string
+              last_investigated_at:
+                type: string
+              title_locked:
+                type: boolean
+          work_action:
+            type: string
+          enclave_name:
+            type: string
+          representative:
+            type: object
+            properties:
+              test_name:
+                type: string
+              failed_step:
+                type: string
+              root_failed_step:
+                type: string
+              category:
+                type: string
+              error_signature:
+                type: string
+              shard_id:
+                type: string
+              head_sha:
+                type: string
+              run_started_at:
+                type: string
+              prior_ai_summary:
+                type: string
+              assertoor_image:
+                type: string
+              artifact_coverage:
+                type: object
+                properties:
+                  has_summary:
+                    type: boolean
+                  has_enclave_dump:
+                    type: boolean
+                  has_claude_output:
+                    type: boolean
+                  has_kurtosis_params:
+                    type: boolean
+                  missing:
+                    type: array
+                    items:
+                      type: string
+                  notes:
+                    type: string
+              affected_client_pairs:
+                type: array
+                items:
+                  type: string
+              passing_client_pairs:
+                type: array
+                items:
+                  type: string
+              failed_task_leaves:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    task_name:
+                      type: string
+                    title:
+                      type: string
+                    role:
+                      type: string
+                    client_pair:
+                      type: string
+              client_pairs:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    pair_id:
+                      type: string
+                    el_type:
+                      type: string
+                    cl_type:
+                      type: string
+                    vc_type:
+                      type: string
+                    el_image:
+                      type: string
+                    cl_image:
+                      type: string
+                    vc_image:
+                      type: string
+              runtime_components:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    service_name:
+                      type: string
+                    role:
+                      type: string
+                    client:
+                      type: string
+                    image_ref:
+                      type: string
+                    image_id:
+                      type: string
+                    manifest_digest:
+                      type: string
+                    source_repo:
+                      type: string
+                    source_revision:
+                      type: string
+                    version:
+                      type: string
+                    build_info:
+                      type: string
+                    source:
+                      type: string
+              original_artifact_evidence:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    source:
+                      type: string
+                    category:
+                      type: string
+                    summary:
+                      type: string
+                    excerpt:
+                      type: string
+              component_hints:
+                type: array
+                items:
+                  type: string
+              evidence_brief:
+                type: object
+                properties:
+                  headline:
+                    type: string
+                  failure_shape:
+                    type: string
+                  client_scope:
+                    type: string
+                  task_scope:
+                    type: string
+                  artifact_signal:
+                    type: string
+                  component_hints:
+                    type: string
+                  routing_notes:
+                    type: string
+          test_inspection:
+            type: object
+            properties:
+              attempted:
+                type: boolean
+              summary:
+                type: string
+              recent_changes:
+                type: string
+          reproduction:
+            type: object
+            properties:
+              attempted:
+                type: boolean
+              launched:
+                type: boolean
+              reproduced:
+                type: boolean
+              test_result:
+                type: string
+              summary:
+                type: string
+              evidence:
+                type: array
+                items:
+                  type: string
+              matches_prior:
+                type: boolean
+              attempts_made:
+                type: number
+              attempts_converged:
+                type: boolean
+              attempt_log:
+                type: string
+          regression:
+            type: object
+            properties:
+              attempted:
+                type: boolean
+              found:
+                type: boolean
+              summary:
+                type: string
+              window:
+                type: object
+                properties:
+                  baseline_found:
+                    type: boolean
+                  previous_success_run_id:
+                    type: string
+                  previous_success_run_url:
+                    type: string
+                  previous_success_head_sha:
+                    type: string
+                  current_head_sha:
+                    type: string
+              component_changes:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    component:
+                      type: string
+                    service_name:
+                      type: string
+                    role:
+                      type: string
+                    previous_image_ref:
+                      type: string
+                    current_image_ref:
+                      type: string
+                    previous_digest:
+                      type: string
+                    current_digest:
+                      type: string
+                    previous_revision:
+                      type: string
+                    current_revision:
+                      type: string
+                    changed:
+                      type: boolean
+                    evidence:
+                      type: string
+              changed_components:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    component:
+                      type: string
+                    service_name:
+                      type: string
+                    role:
+                      type: string
+                    previous_image_ref:
+                      type: string
+                    current_image_ref:
+                      type: string
+                    previous_digest:
+                      type: string
+                    current_digest:
+                      type: string
+                    previous_revision:
+                      type: string
+                    current_revision:
+                      type: string
+                    changed:
+                      type: boolean
+                    evidence:
+                      type: string
+              unchanged_components:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    component:
+                      type: string
+                    service_name:
+                      type: string
+                    role:
+                      type: string
+                    previous_digest:
+                      type: string
+                    current_digest:
+                      type: string
+                    previous_revision:
+                      type: string
+                    current_revision:
+                      type: string
+                    evidence:
+                      type: string
+              unresolved_components:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    component:
+                      type: string
+                    service_name:
+                      type: string
+                    role:
+                      type: string
+                    previous_image_ref:
+                      type: string
+                    current_image_ref:
+                      type: string
+                    reason:
+                      type: string
+                    evidence:
+                      type: string
+              target_ranking:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    component:
+                      type: string
+                    service_name:
+                      type: string
+                    target_kind:
+                      type: string
+                    rank:
+                      type: number
+                    reason:
+                      type: string
+                    confidence:
+                      type: number
+              commit_ranges:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    component:
+                      type: string
+                    repo_url:
+                      type: string
+                    previous_revision:
+                      type: string
+                    current_revision:
+                      type: string
+                    range:
+                      type: string
+          bug_hunt:
+            type: object
+            properties:
+              attempted:
+                type: boolean
+              findings:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    title:
+                      type: string
+                    severity:
+                      type: string
+                    summary:
+                      type: string
+                    affected_scope:
+                      type: string
+                    evidence:
+                      type: array
+                      items:
+                        type: string
+              summary:
+                type: string
+              recommended_actions:
+                type: array
+                items:
+                  type: string
+              completeness:
+                type: string
+              iterations_used:
+                type: number
+              converged:
+                type: boolean
+          classification:
+            type: object
+            properties:
+              attempted:
+                type: boolean
+              decision:
+                type: string
+              confidence:
+                type: number
+              reasoning:
+                type: string
+          source_dive:
+            type: object
+            properties:
+              attempted:
+                type: boolean
+              target_kind:
+                type: string
+              skip_reason:
+                type: string
+              repo_url:
+                type: string
+              commit_sha:
+                type: string
+              component:
+                type: string
+              client_name:
+                type: string
+              resolution_method:
+                type: string
+              commit_exact:
+                type: boolean
+              resolution_caveat:
+                type: string
+              workdir:
+                type: string
+              cloned:
+                type: boolean
+              alternate_targets:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    target_kind:
+                      type: string
+                    component:
+                      type: string
+                    repo_url:
+                      type: string
+                    service_name:
+                      type: string
+                    reason:
+                      type: string
+              root_cause_description:
+                type: string
+              suggested_change_md:
+                type: string
+              top_candidates:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    line_range:
+                      type: string
+                    start_line:
+                      type: number
+                    end_line:
+                      type: number
+                    permalink:
+                      type: string
+                    stable:
+                      type: boolean
+                    relevance_assessment:
+                      type: string
+                    suggested_change:
+                      type: string
+                    verified:
+                      type: string
+                    verification_notes:
+                      type: string
+              code_refs:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    label:
+                      type: string
+                    repo_url:
+                      type: string
+                    commit_sha:
+                      type: string
+                    path:
+                      type: string
+                    start_line:
+                      type: number
+                    end_line:
+                      type: number
+                    permalink:
+                      type: string
+                    stable:
+                      type: boolean
+                    reason:
+                      type: string
+              confidence:
+                type: number
+              confidence_note:
+                type: string
+              search_summary:
+                type: string
+              regression_context:
+                type: string
+              literal_search_signal:
+                type: number
+              recent_change_signal:
+                type: number
+              recent_change_signal_notes:
+                type: string
+          launcher_audit:
+            type: object
+            properties:
+              attempted:
+                type: boolean
+              summary:
+                type: string
+              verdict:
+                type: string
+  existing_issue_bodies:
+    type: array
+    default: []
+    description: Existing GitHub issue bodies aligned or keyed by cheap_fingerprint. Used to preserve recurrence, covered-stale pending bodies, and covered-complete bodies.
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          cheap_fingerprint:
+            type: string
+          issue_body:
+            type: string
+  target_repo:
+    type: string
+    default: ""
+    description: GitHub repository where issues are written, used only for prose/link context.
+  run_id:
+    type: string
+    required: true
+    description: Current failing GitHub Actions run id.
+  run_url:
+    type: string
+    default: ""
+    description: Current failing GitHub Actions run URL.
+  run_started_at:
+    type: string
+    default: ""
+    description: Current failing run start timestamp.
+  schema_version:
+    type: number
+    default: 1
+    description: ci-investigate marker schema version to render.
+tasks:
+  render:
+    selection:
+      capabilities: [reasoning]
+    run: assertoor-ci-issue-render
+    quality-gate: "${{ has(result.cluster_reports) }}"
+    instructions: |-
+      Render `cluster_reports` suitable for `io.ethpandaops/ci-investigate-issue-upsert-by-fingerprint`. The publisher only creates/updates GitHub issues; this template owns the issue body content.
+
+      General rules:
+      - Output zero or more `cluster_reports`.
+      - Each body must be self-contained. Do not rely on companion comments.
+      - Every body must include all ci-investigate HTML markers.
+      - Preserve recurrence history from existing issue bodies when available.
+      - Prefer concrete original CI evidence, previous-success diffs, source-code links, and named client/runtime identity over model prose.
+      - For client classifications, primary ownership and primary actions must stay on the implicated client/protocol/devnet component. Framework, dependency, launcher, and test-harness components are fallback or mitigation unless classification says framework/dependency/config.
+
+      Pending mode:
+      - Include only clusters where the aligned `statuses[index].status` is `new` or `covered-stale`.
+      - Do not include `covered-complete` or `covered-pending` in pending mode. `covered-complete` is recurrence-only.
+      - Preserve index alignment across `clusters`, `cluster_fingerprints`, `cluster_human_labels`, and `statuses`.
+      - Find an existing body by matching `existing_issue_bodies[].cheap_fingerprint == <fingerprint>` when the status is `covered-stale`.
+      - For `new`, render a short deterministic pending body with markers and fixed headings.
+      - For `covered-stale` with an existing body, preserve the existing diagnosis body instead of replacing it with a skeleton. Update only the ci-investigate marker lines, managed status, current run metadata, and `## Recurrence`. Prior Summary/Verdict/Evidence/Source Dive/Actions sections remain useful context while the stale issue is being re-investigated; do not delete or rewrite them. It is acceptable to add a one-line pending notice immediately after the marker block, but do not obscure the previous diagnosis.
+      - For `covered-stale` without an existing body, fall back to the same short pending body used for `new`.
+      - Pending bodies must contain markers:
+        - `<!-- ci-investigate:schema-version=<schema_version> -->`
+        - `<!-- ci-investigate:cheap-fingerprint=<fingerprint> -->`
+        - `<!-- ci-investigate:classification=<preserved classification for covered-stale, else unknown> -->`
+        - `<!-- ci-investigate:state=pending -->`
+        - `<!-- ci-investigate:first-seen-run=<preserved first_seen_run when present, else run_id> -->`
+        - `<!-- ci-investigate:last-seen-run=<run_id> -->`
+        - `<!-- ci-investigate:last-seen-at=<run_started_at when present, else current UTC ISO-8601 timestamp> -->`
+        - `<!-- ci-investigate:last-investigated-run=<preserved last_investigated_run for covered-stale, else empty> -->`
+        - `<!-- ci-investigate:last-investigated-at=<preserved last_investigated_at for covered-stale, else empty> -->`
+        - `<!-- ci-investigate:title-locked=<preserved title_locked for covered-stale when true, else false> -->`
+      - New/skeleton pending bodies include fixed headings: `## Summary`, `## Contents`, `## Current State`, `## Recurrence`.
+      - In recurrence, preserve existing recurrence bullets when available, then add exactly one current-run bullet if absent. Use reason `first seen (investigation pending)` for `new` and `still failing (investigation pending)` for `covered-stale`.
+      - Labels: `ci-investigate`, `nightly`, `assertoor`, `status:pending`.
+      - Set `classification` to the preserved classification for covered-stale when available, else `unknown`; set all confidence fields to 0; set `existing_issue_number` from `statuses[index].issue_number` for covered-stale and `0` for new; set `state_check_status` from the aligned status; set `desired_state="pending"`.
+
+      Recurrence mode:
+      - Include only clusters where the aligned `statuses[index].status` is `covered-complete` and the issue does not already record this run. If `run_id` is non-empty and `statuses[index].last_seen_run == run_id`, emit no cluster_report for that cluster.
+      - Do not run or invent a new diagnosis. Preserve the existing completed issue body when available; update only markers, current run metadata, and `## Recurrence`.
+      - Mark desired_state as `complete`, state_check_status as `covered-complete`, existing_issue_number from the aligned status, and labels as the managed set only: `ci-investigate`, `nightly`, `assertoor`, `status:complete`. The publisher preserves existing non-status labels while reconciling managed status labels.
+      - Preserve classification from `statuses[index].classification` or existing markers; set all confidence fields to 0 because no fresh diagnosis ran.
+      - Preserve `last-investigated-run` and `last-investigated-at`; update only `last-seen-run` and `last-seen-at`. Recurrence-only body edits must not refresh the stale-reinvestigation clock.
+      - Add exactly one recurrence bullet for the current run if absent, with reason `recurrence`. Keep the 30 most recent entries.
+      - Do not add recurrence-mode explanatory prose to `## Summary`, `## Verdict`, or any other diagnosis section. Recurrence mode should preserve the prior diagnosis text verbatim except for marker lines and the `## Recurrence` section.
+
+      Final mode:
+      - Render one cluster_report per entry in `raw_findings`, sorted by numeric `cluster_idx`. Do not depend on matrix append order.
+      - Use nested stage objects: `r.test_inspection`, `r.reproduction`, `r.regression`, `r.bug_hunt`, `r.classification`, `r.source_dive`, and `r.launcher_audit`.
+      - Use `r.representative` for original CI scope: affected pairs, passing pairs, failed leaves, runtime components, artifact evidence, component hints, prior summary, head SHA, and assertoor image.
+      - Find an existing body by matching `existing_issue_bodies[].cheap_fingerprint == r.cheap_fingerprint`.
+
+      Final desired state:
+      - `complete` when `r.classification.attempted == true` and `r.classification.decision != "unknown"`.
+      - `complete` when `r.status.status == "covered-complete"`; preserve existing body where possible.
+      - `investigating` when status is `covered-pending` and this run did not complete classification.
+      - `investigating` when no classification ran, or when classification produced only `unknown`.
+      - Skipped reproduction, missing kurtosis params, or a launch failure do not by themselves force `investigating` if the original CI artifacts, regression window, and source-dive still support a real non-unknown verdict; otherwise keep the issue in `investigating`.
+      - Default to `complete` only when the rendered body contains a real verdict.
+
+      Final labels:
+      - Always include `ci-investigate`, `nightly`, and `assertoor`.
+      - Always include exactly one managed status label matching `desired_state`: `status:pending`, `status:investigating`, or `status:complete`. Never include more than one `status:*` label in `labels`.
+      - `framework-bug`: `area:framework`, severity by category (crash => `severity:critical`, timeout => `severity:high`, else `severity:medium`).
+      - `framework-dependency`: `area:framework`, `component:dependency`, `severity:high`; add `component:spamoor` when hints name spamoor.
+      - `single-client`: `area:client`, `severity:high`; add `client:<name>` when source-dive or findings name a specific client.
+      - `multi-client`: `area:protocol`, `severity:high`.
+      - `devnet-network`: `area:devnet-network`, `severity:high`; add `component:bootnodoor` or `component:ethereum-package` when evidence names them.
+      - `config-issue`: `area:config`, `severity:medium`.
+      - `test-design`: `area:test-design`, `severity:medium`.
+      - `infra-flake`: `severity:low`.
+      - `mixed`: `area:mixed`, `severity:high`.
+
+      Final body:
+      1. Start with markers:
+         - `<!-- ci-investigate:schema-version=<schema_version> -->`
+         - `<!-- ci-investigate:cheap-fingerprint=<r.cheap_fingerprint> -->`
+         - `<!-- ci-investigate:classification=<classification when attempted, else preserved classification, else unknown> -->`
+         - `<!-- ci-investigate:state=<desired_state> -->`
+         - `<!-- ci-investigate:first-seen-run=<preserved first_seen_run when present, else run_id> -->`
+         - `<!-- ci-investigate:last-seen-run=<run_id> -->`
+         - `<!-- ci-investigate:last-seen-at=<run_started_at when present, else current UTC ISO-8601 timestamp> -->`
+         - `<!-- ci-investigate:last-investigated-run=<run_id when classification attempted, else preserved last_investigated_run, else empty> -->`
+         - `<!-- ci-investigate:last-investigated-at=<run_started_at when classification attempted and run_started_at is present, else current UTC ISO-8601 timestamp when classification attempted, else preserved last_investigated_at, else empty> -->`
+         - `<!-- ci-investigate:title-locked=<preserved title_locked when true, else false> -->`
+      2. Use headings in this exact order:
+         - `## Summary`
+         - `## Contents`
+         - `## Verdict`
+         - `## Attribution`
+         - `## Original CI Failure`
+         - `## Evidence`
+         - `## Reproduction`
+         - `## Regression Window`
+         - `## Source Dive`
+         - `## Actions`
+         - `## Recurrence`
+         - `## Details`
+      3. Contents must be a manual TOC with stable GitHub anchors. Include `Summary` and every top-level heading after `Contents`; do not include `Contents` itself.
+      4. Summary should fit the first screen: one short paragraph plus at most three bullets. Include state, classification, notification confidence, diagnosis confidence, regression-pin confidence, implicated client/component, test, original shard(s), run link, and previous success when known. Do not put line-range implementation analysis in Summary; move that to Source Dive.
+      5. Verdict should be 2-4 precise sentences, max ~180 words. Put caveats in Details/Open questions unless they materially weaken the headline.
+      6. Attribution should tie 3-6 bullets to original CI evidence, runtime identity, previous-success diffs, and source-dive facts. Phrase this as why the named client/component is implicated, not as blame assignment. Keep each bullet focused; avoid restating the full evidence table.
+      7. Original CI Failure must separate original failed shard IDs and original failed client pairs from reproduction-only observations. Include artifact coverage gaps when summary/enclave-dump/kurtosis params were missing.
+      8. Evidence should show the top 3-5 original artifact evidence items with source, category, summary, and short fenced excerpts. Put original CI artifact evidence before derived live-enclave or source-dive evidence.
+      9. Reproduction must say whether the local run launched, reproduced, matched prior, and how many attempts ran. If `test_result="blocked"`, say the faithful full queue failed before the target test started and treat that as non-reproduction of the target. Independently compare original failed pairs/tasks with reproduced failed pairs/tasks when available. If the implicated owner was originally in a passing pair, or the reproduced failing pairs differ materially from the original failing pairs, call that out as a shape mismatch even when `matches_prior=true`; keep original CI evidence primary and put the confidence caveat near the top.
+      10. Regression Window should include previous success run/link/SHA, changed/unchanged/unresolved components, and GitHub compare links when `commit_ranges` has `repo_url`, `previous_revision`, and `current_revision`.
+      11. Source Dive should show target kind, component, repo, commit, source identity exactness, confidence, literal-search signal, and recent-change signal. Render links from `r.source_dive.code_refs` first. Code links must be stable commit permalinks; if a link uses `HEAD`, a branch, or a commit different from the source-dive commit being reported, label it `unstable` and explain that the line numbers may drift. If `r.source_dive.commit_exact == false` or `r.source_dive.resolution_method` is `default-head-fallback` or `direct-repo-head-fallback`, explicitly say the linked code is repository HEAD used for investigation and is not proven to be the tested image/source commit. If code_refs are absent, construct up to three candidate links from repo URL, commit SHA, path, and line range. If `r.source_dive.alternate_targets` is non-empty, include a short "Next source targets if this is exhausted" note under Source Dive.
+      12. Actions must split into `Primary` and `Mitigations / follow-up`, with no more than five visible bullets total. Primary actions should follow from the Verdict, Attribution, Evidence, Regression Window, and Source Dive sections, not introduce a new unproven mechanism.
+      13. Recurrence should parse existing bullets from the prior body's `## Recurrence` section, add exactly one current-run bullet if absent, and replace a current pending bullet with `investigation completed from pending` when classification completed. Use reasons: `first seen`, `recurrence`, `investigation completed from pending`, `still failing (investigation pending)`. Keep the 30 most recent entries.
+      14. Details should use `<details>` blocks for runtime identity, full client matrix, test inspection, bug-hunt findings, source-dive detail/suggested changes, CI-side prior analysis when materially useful, ethereum-package launcher audit, and extra evidence. Use `Launcher audit (ethereum-package)` as the summary text, not `Framework audit`.
+
+      Special case: for `covered-complete`, if an existing issue body is available and no investigation ran this time, preserve the existing diagnosis text verbatim. Update only marker lines, latest run metadata, and recurrence. If the issue already records `run_id` as `last-seen-run`, emit no cluster_report for that cluster.
+
+      Keep normal bodies around 20k-35k chars and hard cap near 55k chars. If the body is too long, drop from the bottom in this order: extra excerpts, CI-side prior analysis, full runtime identity, long bug-hunt finding bodies, long source-dive prose. Append `_Body truncated; see CI artifacts for full raw logs._`
+
+      Confidence outputs:
+      - `classification_confidence` is the upstream classifier's owner/type confidence. For final mode, set it from `raw_findings[].classification.confidence`; for pending and recurrence modes, set it to 0.
+      - `owner_confidence` is confidence that the issue names the right responsible owner/component, not that the exact patch is pinned. Start from `classification_confidence`, then lower it only for contradictory original CI evidence, uncertain runtime identity, or a source/reproduction finding that points to another owner.
+      - `mechanism_confidence` is confidence that the observed symptoms are explained by the described failure mechanism. Ground it in original CI artifacts first, then reproduction, regression-window evidence, bug-hunt observations, and source-dive facts. Do not reduce this solely because the exact regression-introducing commit is unknown; reduce it when the mechanism itself is speculative, contradicted, or not tied to the failed test behavior.
+      - `source_identity_confidence` is confidence that inspected source code corresponds to the runtime that failed. Use high values only when image digest/version/runtime metadata or previous-success/current-run revisions prove the tested commit. Cap at 75 for mutable/head fallback (`commit_exact=false`, `resolution_method=default-head-fallback`, or `resolution_method=direct-repo-head-fallback`) unless exact tested identity is proven elsewhere; cap at 60 when source_dive was expected but could not clone.
+      - `regression_pin_confidence` is confidence that the investigation identifies the specific regression-introducing code/config change. Use high values only for a concrete previous-success/current-failure diff, commit, PR, or line-level change that explains the failure. Use medium values when the regression window isolates a component/repo but not the exact edit, especially when `recent_change_signal` is strong. Use low values when only the current bug surface is localized, history is missing, or the behavior may be longstanding and newly exposed.
+      - `diagnosis_confidence` is the conservative confidence that the rendered issue identifies the actual mechanism and source surface. For final mode, start from the lower of `owner_confidence` and `mechanism_confidence`, then cap it with source and reproduction evidence: if source_dive attempted and cloned, do not exceed source_dive confidence unless the only source-dive weakness is explicitly regression pinning and the mechanism is independently proven by original CI artifacts; if source_dive attempted/cloned but confidence is zero, or all verified source candidates are `false`, cap at 45; if source_dive was expected but failed to clone, cap at 60; if source identity is mutable/head-fallback (`commit_exact=false`, `resolution_method=default-head-fallback`, or `resolution_method=direct-repo-head-fallback`), cap at `source_identity_confidence`; if reproduction did not match the original shape, cap at 75 unless original CI artifacts plus regression/source evidence are independently strong. Do not let high owner confidence override failed or contradictory source grounding.
+      - `notification_confidence` is the confidence that this final touched issue is safe and useful to alert humans about. Base it on owner confidence, mechanism confidence, original CI evidence strength, source identity, and severity. Do not cap it solely because `regression_pin_confidence` is medium/low; instead include the pinning caveat in the issue. It can be 85+ when owner confidence is high, the mechanism is well supported, and source identity is adequate, even if the exact regression edit is not pinned. Cap at 60 for `classification="unknown"` or owner confidence below 70. Cap at 75 for mutable/head-fallback source identity unless runtime identity is proven elsewhere. Cap at 80 for reproduction shape mismatch unless original CI artifacts plus regression/source evidence independently isolate the owner/mechanism. For pending and recurrence modes, set all confidence fields to 0 because no current-run diagnosis exists.
+
+      Return `cluster_reports` with: `cheap_fingerprint`, `human_label`, `classification`, `classification_confidence`, `owner_confidence`, `mechanism_confidence`, `source_identity_confidence`, `regression_pin_confidence`, `diagnosis_confidence`, `notification_confidence`, `issue_body_md`, `labels`, `existing_issue_number`, `state_check_status`, and `desired_state`.
+    inputs:
+      mode: ${{ inputs.mode }}
+      clusters: ${{ inputs.clusters }}
+      cluster_fingerprints: ${{ inputs.cluster_fingerprints }}
+      cluster_human_labels: ${{ inputs.cluster_human_labels }}
+      statuses: ${{ inputs.statuses }}
+      raw_findings: ${{ inputs.raw_findings }}
+      existing_issue_bodies: ${{ inputs.existing_issue_bodies }}
+      target_repo: ${{ inputs.target_repo }}
+      run_id: ${{ inputs.run_id }}
+      run_url: ${{ inputs.run_url }}
+      run_started_at: ${{ inputs.run_started_at }}
+      schema_version: ${{ inputs.schema_version }}
+    outputs:
+      cluster_reports: "${{ has(result.cluster_reports) ? result.cluster_reports : [] }}"
+      summary: "${{ has(result.summary) ? result.summary : '' }}"
+      schema:
+        cluster_reports:
+          type: array
+          items:
+            type: object
+            properties:
+              cheap_fingerprint:
+                type: string
+              human_label:
+                type: string
+              classification:
+                type: string
+              classification_confidence:
+                type: number
+              owner_confidence:
+                type: number
+              mechanism_confidence:
+                type: number
+              source_identity_confidence:
+                type: number
+              regression_pin_confidence:
+                type: number
+              diagnosis_confidence:
+                type: number
+              notification_confidence:
+                type: number
+              issue_body_md:
+                type: string
+              labels:
+                type: array
+                items:
+                  type: string
+              existing_issue_number:
+                type: number
+              state_check_status:
+                type: string
+              desired_state:
+                type: string
+                enum: [pending, investigating, complete]
+            required: [cheap_fingerprint, human_label, classification, classification_confidence, owner_confidence, mechanism_confidence, source_identity_confidence, regression_pin_confidence, diagnosis_confidence, notification_confidence, issue_body_md, labels, existing_issue_number, state_check_status, desired_state]
+        summary:
+          type: string
+outputs:
+  cluster_reports: ${{ tasks.render.outputs.cluster_reports }}
+  summary: ${{ tasks.render.outputs.summary }}
