@@ -7,91 +7,16 @@ authors: [savid]
 homepage: https://github.com/ethpandaops/wagie-templates
 repository: https://github.com/ethpandaops/wagie-templates
 description: >-
-  Use when assertoor CI triage needs canonical GitHub issue bodies for pending or completed per-cluster investigations. Usually called by assertoor-ci-investigate before ci-investigate-issue-upsert-by-fingerprint.
+  Use when assertoor CI triage needs rendered GitHub issue bodies for completed per-cluster investigations.
 tags: ["assertoor", "ci", "github-issues", "triage", "render"]
 defaults:
   retryable: true
   timeout: 30m
 inputs:
-  mode:
-    type: string
-    required: true
-    options: [pending, final, recurrence]
-    description: Render pending reservation bodies, final completed investigation bodies, or recurrence-only updates for already-complete issues.
-  clusters:
-    type: array
-    default: []
-    description: Cluster objects aligned with cluster_fingerprints, cluster_human_labels, and statuses. Required for pending mode.
-    schema:
-      type: array
-      items:
-        type: object
-        properties:
-          cheap_fingerprint:
-            type: string
-          human_label:
-            type: string
-          representative_index:
-            type: number
-          member_shard_ids:
-            type: array
-            items:
-              type: string
-          member_count:
-            type: number
-  cluster_fingerprints:
-    type: array
-    default: []
-    description: Cheap fingerprints aligned with clusters. Required for pending mode.
-    schema:
-      type: array
-      items:
-        type: string
-  cluster_human_labels:
-    type: array
-    default: []
-    description: Human labels aligned with clusters. Required for pending mode.
-    schema:
-      type: array
-      items:
-        type: string
-  statuses:
-    type: array
-    default: []
-    description: State-check statuses aligned with clusters.
-    schema:
-      type: array
-      items:
-        type: object
-        properties:
-          fingerprint:
-            type: string
-          status:
-            type: string
-          issue_number:
-            type: number
-          issue_url:
-            type: string
-          issue_state:
-            type: string
-          classification:
-            type: string
-          first_seen_run:
-            type: string
-          last_seen_run:
-            type: string
-          last_seen_at:
-            type: string
-          last_investigated_run:
-            type: string
-          last_investigated_at:
-            type: string
-          title_locked:
-            type: boolean
   raw_findings:
     type: array
     default: []
-    description: Nested per-cluster investigation findings from assertoor-ci-investigate. Required for final mode.
+    description: Nested per-cluster investigation findings from assertoor-ci-investigate.
     schema:
       type: array
       items:
@@ -101,7 +26,7 @@ inputs:
             type: number
           cheap_fingerprint:
             type: string
-          human_label:
+          cluster_label:
             type: string
           cluster:
             type: object
@@ -129,26 +54,10 @@ inputs:
                 type: number
               issue_url:
                 type: string
-              issue_state:
-                type: string
+              schema_version:
+                type: number
               classification:
                 type: string
-              first_seen_run:
-                type: string
-              last_seen_run:
-                type: string
-              last_seen_at:
-                type: string
-              last_investigated_run:
-                type: string
-              last_investigated_at:
-                type: string
-              title_locked:
-                type: boolean
-          work_action:
-            type: string
-          enclave_name:
-            type: string
           representative:
             type: object
             properties:
@@ -179,7 +88,7 @@ inputs:
                     type: boolean
                   has_enclave_dump:
                     type: boolean
-                  has_claude_output:
+                  has_ai_summary_artifact:
                     type: boolean
                   has_kurtosis_params:
                     type: boolean
@@ -256,6 +165,21 @@ inputs:
                       type: string
                     source:
                       type: string
+              package_runtime_identity:
+                type: object
+                properties:
+                  package_ref:
+                    type: string
+                  package_started_at:
+                    type: string
+                  source_repo:
+                    type: string
+                  source_revision:
+                    type: string
+                  source:
+                    type: string
+                  evidence:
+                    type: string
               original_artifact_evidence:
                 type: array
                 items:
@@ -310,10 +234,22 @@ inputs:
                 type: boolean
               test_result:
                 type: string
-              observed_signal:
-                type: string
               summary:
                 type: string
+              launch_summary:
+                type: string
+              runtime_fidelity_summary:
+                type: string
+              package_ref_used:
+                type: string
+              pinned_images:
+                type: array
+                items:
+                  type: string
+              unpinned_images:
+                type: array
+                items:
+                  type: string
               evidence:
                 type: array
                 items:
@@ -324,8 +260,6 @@ inputs:
                 type: number
               attempts_converged:
                 type: boolean
-              attempt_log:
-                type: string
           regression:
             type: object
             properties:
@@ -371,6 +305,10 @@ inputs:
                       type: string
                     current_revision:
                       type: string
+                    previous_version:
+                      type: string
+                    current_version:
+                      type: string
                     changed:
                       type: boolean
                     evidence:
@@ -398,6 +336,10 @@ inputs:
                       type: string
                     current_revision:
                       type: string
+                    previous_version:
+                      type: string
+                    current_version:
+                      type: string
                     changed:
                       type: boolean
                     evidence:
@@ -420,6 +362,10 @@ inputs:
                     previous_revision:
                       type: string
                     current_revision:
+                      type: string
+                    previous_version:
+                      type: string
+                    current_version:
                       type: string
                     evidence:
                       type: string
@@ -542,8 +488,6 @@ inputs:
                 type: boolean
               resolution_caveat:
                 type: string
-              workdir:
-                type: string
               cloned:
                 type: boolean
               alternate_targets:
@@ -558,6 +502,10 @@ inputs:
                     repo_url:
                       type: string
                     service_name:
+                      type: string
+                    commit_sha:
+                      type: string
+                    image_ref:
                       type: string
                     reason:
                       type: string
@@ -613,7 +561,57 @@ inputs:
                       type: boolean
                     reason:
                       type: string
+              alternate_probe_summary:
+                type: string
+              alternate_probe_target:
+                type: object
+                properties:
+                  target_kind:
+                    type: string
+                  component:
+                    type: string
+                  repo_url:
+                    type: string
+                  service_name:
+                    type: string
+                  commit_sha:
+                    type: string
+                  image_ref:
+                    type: string
+                  reason:
+                    type: string
+              alternate_code_refs:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    label:
+                      type: string
+                    repo_url:
+                      type: string
+                    commit_sha:
+                      type: string
+                    path:
+                      type: string
+                    start_line:
+                      type: number
+                    end_line:
+                      type: number
+                    permalink:
+                      type: string
+                    stable:
+                      type: boolean
+                    reason:
+                      type: string
+              alternate_probe_confidence:
+                type: number
               confidence:
+                type: number
+              source_surface_confidence:
+                type: number
+              regression_pin_confidence:
+                type: number
+              fix_target_confidence:
                 type: number
               confidence_note:
                 type: string
@@ -636,19 +634,6 @@ inputs:
                 type: string
               verdict:
                 type: string
-  existing_issue_bodies:
-    type: array
-    default: []
-    description: Existing GitHub issue bodies aligned or keyed by cheap_fingerprint. Used to preserve recurrence, covered-stale pending bodies, and covered-complete bodies.
-    schema:
-      type: array
-      items:
-        type: object
-        properties:
-          cheap_fingerprint:
-            type: string
-          issue_body:
-            type: string
   target_repo:
     type: string
     default: ""
@@ -676,66 +661,32 @@ tasks:
     run: assertoor-ci-issue-render
     quality-gate: "${{ has(result.cluster_reports) }}"
     instructions: |-
-      Render `cluster_reports` suitable for `io.ethpandaops/ci-investigate-issue-upsert-by-fingerprint`. The publisher only creates/updates GitHub issues; this template owns the issue body content.
+      Render `cluster_reports` as complete GitHub issue drafts. Include all content needed for issue creation in each rendered body.
 
       General rules:
-      - Output zero or more `cluster_reports`.
+      - Output zero or more `cluster_reports`. If `raw_findings` is empty, return `cluster_reports=[]` and a short summary such as `No new investigated clusters to publish.`
       - Each body must be self-contained. Do not rely on companion comments.
       - Every body must include all ci-investigate HTML markers.
-      - Preserve recurrence history from existing issue bodies when available.
       - Prefer concrete original CI evidence, previous-success diffs, source-code links, and named client/runtime identity over model prose.
       - For client classifications, primary ownership and primary actions must stay on the implicated client/protocol/devnet component. Framework, dependency, launcher, and test-harness components are fallback or mitigation unless classification says framework/dependency/config.
 
-      Pending mode:
-      - Include only clusters where the aligned `statuses[index].status` is `new` or `covered-stale`.
-      - Do not include `covered-complete` or `covered-pending` in pending mode. `covered-complete` is recurrence-only.
-      - Preserve index alignment across `clusters`, `cluster_fingerprints`, `cluster_human_labels`, and `statuses`.
-      - Find an existing body by matching `existing_issue_bodies[].cheap_fingerprint == <fingerprint>` when the status is `covered-stale`.
-      - For `new`, render a short deterministic pending body with markers and fixed headings.
-      - For `covered-stale` with an existing body, preserve the existing diagnosis body instead of replacing it with a skeleton. Update only the ci-investigate marker lines, managed status, current run metadata, and `## Recurrence`. Prior Summary/Verdict/Evidence/Source Dive/Actions sections remain useful context while the stale issue is being re-investigated; do not delete or rewrite them. It is acceptable to add a one-line pending notice immediately after the marker block, but do not obscure the previous diagnosis.
-      - For `covered-stale` without an existing body, fall back to the same short pending body used for `new`.
-      - Pending bodies must contain markers:
-        - `<!-- ci-investigate:schema-version=<schema_version> -->`
-        - `<!-- ci-investigate:cheap-fingerprint=<fingerprint> -->`
-        - `<!-- ci-investigate:classification=<preserved classification for covered-stale, else unknown> -->`
-        - `<!-- ci-investigate:state=pending -->`
-        - `<!-- ci-investigate:first-seen-run=<preserved first_seen_run when present, else run_id> -->`
-        - `<!-- ci-investigate:last-seen-run=<run_id> -->`
-        - `<!-- ci-investigate:last-seen-at=<run_started_at when present, else current UTC ISO-8601 timestamp> -->`
-        - `<!-- ci-investigate:last-investigated-run=<preserved last_investigated_run for covered-stale, else empty> -->`
-        - `<!-- ci-investigate:last-investigated-at=<preserved last_investigated_at for covered-stale, else empty> -->`
-        - `<!-- ci-investigate:title-locked=<preserved title_locked for covered-stale when true, else false> -->`
-      - New/skeleton pending bodies include fixed headings: `## Summary`, `## Contents`, `## Current State`, `## Recurrence`.
-      - In recurrence, preserve existing recurrence bullets when available, then add exactly one current-run bullet if absent. Use reason `first seen (investigation pending)` for `new` and `still failing (investigation pending)` for `covered-stale`.
-      - Labels: `ci-investigate`, `nightly`, `assertoor`, `status:pending`.
-      - Set `classification` to the preserved classification for covered-stale when available, else `unknown`; set all confidence fields to 0; set `existing_issue_number` from `statuses[index].issue_number` for covered-stale and `0` for new; set `state_check_status` from the aligned status; set `desired_state="pending"`.
-
-      Recurrence mode:
-      - Include only clusters where the aligned `statuses[index].status` is `covered-complete` and the issue does not already record this run. If `run_id` is non-empty and `statuses[index].last_seen_run == run_id`, emit no cluster_report for that cluster.
-      - Do not run or invent a new diagnosis. Preserve the existing completed issue body when available; update only markers, current run metadata, and `## Recurrence`.
-      - Mark desired_state as `complete`, state_check_status as `covered-complete`, existing_issue_number from the aligned status, and labels as the managed set only: `ci-investigate`, `nightly`, `assertoor`, `status:complete`. The publisher preserves existing non-status labels while reconciling managed status labels.
-      - Preserve classification from `statuses[index].classification` or existing markers; set all confidence fields to 0 because no fresh diagnosis ran.
-      - Preserve `last-investigated-run` and `last-investigated-at`; update only `last-seen-run` and `last-seen-at`. Recurrence-only body edits must not refresh the stale-reinvestigation clock.
-      - Add exactly one recurrence bullet for the current run if absent, with reason `recurrence`. Keep the 30 most recent entries.
-      - Do not add recurrence-mode explanatory prose to `## Summary`, `## Verdict`, or any other diagnosis section. Recurrence mode should preserve the prior diagnosis text verbatim except for marker lines and the `## Recurrence` section.
-
-      Final mode:
       - Render one cluster_report per entry in `raw_findings`, sorted by numeric `cluster_idx`. Do not depend on matrix append order.
       - Use nested stage objects: `r.test_inspection`, `r.reproduction`, `r.regression`, `r.bug_hunt`, `r.classification`, `r.source_dive`, and `r.launcher_audit`.
       - Use `r.representative` for original CI scope: affected pairs, passing pairs, failed leaves, runtime components, artifact evidence, component hints, prior summary, head SHA, and assertoor image.
-      - Find an existing body by matching `existing_issue_bodies[].cheap_fingerprint == r.cheap_fingerprint`.
+      - Render durable issue content, not worker execution telemetry. Do not include generated/local-only identifiers such as `ci-investigate-*` enclave names, local assertoor URLs/ports, worker IDs, assignment IDs, provider session IDs, local workspace paths, temporary filenames, attempt-log internals, or "workdir" values. These are deleted or inaccessible after the run and do not help a maintainer fix the issue.
+      - If local reproduction or bug-hunt evidence is useful, phrase it as "local reproduction confirmed/refuted..." or "reproduction evidence showed..."; do not write "live enclave", "this enclave", or name the local enclave. Use service/client names, logs, RPC observations, and durable artifact paths instead.
+      - Markdown must be clean and skimmable. Use one blank line after headings, short paragraphs, and bullets that fit on one screen line when practical. Prefer a compact table only when comparing similar fields; otherwise use bullets. Use fenced `text` blocks only for exact high-value log excerpts, each with a short source label. Avoid nested lists, raw JSON dumps, repeated long code blocks, malformed links, and bare URLs when a labeled markdown link is possible.
 
-      Final desired state:
-      - `complete` when `r.classification.attempted == true` and `r.classification.decision != "unknown"`.
-      - `complete` when `r.status.status == "covered-complete"`; preserve existing body where possible.
-      - `investigating` when status is `covered-pending` and this run did not complete classification.
-      - `investigating` when no classification ran, or when classification produced only `unknown`.
-      - Skipped reproduction, missing kurtosis params, or a launch failure do not by themselves force `investigating` if the original CI artifacts, regression window, and source-dive still support a real non-unknown verdict; otherwise keep the issue in `investigating`.
-      - Default to `complete` only when the rendered body contains a real verdict.
+      Final publish eligibility:
+      - Emit a cluster_report only when the rendered body contains a real non-unknown verdict.
+      - A verdict comes from this run's classification (`r.classification.attempted == true` and `r.classification.decision != "unknown"`).
+      - If no classification ran, classification is unknown, or the evidence does not support a real verdict, emit no cluster_report for that raw finding. The run report/artifacts are the place for incomplete investigations; do not create a partial GitHub issue.
+      - Skipped reproduction, missing kurtosis params, or a launch failure do not by themselves block publication if original CI artifacts, regression window, and source-dive still support a real non-unknown verdict.
+      - Preserve `cheap_fingerprint` exactly as the pre-investigation dedupe key. It intentionally reflects the early failure surface and is used to skip future reruns before expensive investigation.
+      - Preserve `cluster_label` as the early cluster label. Separately generate `issue_title` from the final investigation result; this is the GitHub issue title and should name the final owner/component plus mechanism, even when it differs from the fingerprint label.
 
       Final labels:
       - Always include `ci-investigate`, `nightly`, and `assertoor`.
-      - Always include exactly one managed status label matching `desired_state`: `status:pending`, `status:investigating`, or `status:complete`. Never include more than one `status:*` label in `labels`.
       - `framework-bug`: `area:framework`, severity by category (crash => `severity:critical`, timeout => `severity:high`, else `severity:medium`).
       - `framework-dependency`: `area:framework`, `component:dependency`, `severity:high`; add `component:spamoor` when hints name spamoor.
       - `single-client`: `area:client`, `severity:high`; add `client:<name>` when source-dive or findings name a specific client.
@@ -750,62 +701,65 @@ tasks:
       1. Start with markers:
          - `<!-- ci-investigate:schema-version=<schema_version> -->`
          - `<!-- ci-investigate:cheap-fingerprint=<r.cheap_fingerprint> -->`
-         - `<!-- ci-investigate:classification=<classification when attempted, else preserved classification, else unknown> -->`
-         - `<!-- ci-investigate:state=<desired_state> -->`
-         - `<!-- ci-investigate:first-seen-run=<preserved first_seen_run when present, else run_id> -->`
-         - `<!-- ci-investigate:last-seen-run=<run_id> -->`
-         - `<!-- ci-investigate:last-seen-at=<run_started_at when present, else current UTC ISO-8601 timestamp> -->`
-         - `<!-- ci-investigate:last-investigated-run=<run_id when classification attempted, else preserved last_investigated_run, else empty> -->`
-         - `<!-- ci-investigate:last-investigated-at=<run_started_at when classification attempted and run_started_at is present, else current UTC ISO-8601 timestamp when classification attempted, else preserved last_investigated_at, else empty> -->`
-         - `<!-- ci-investigate:title-locked=<preserved title_locked when true, else false> -->`
-      2. Use headings in this exact order:
+         - `<!-- ci-investigate:classification=<classification> -->`
+      1a. Generate `issue_title` as a concise post-investigation title:
+         - 6-14 words, no run id, shard id, confidence score, or internal task/process language.
+         - Prefer `<owner/component> <mechanism> <impact>` wording, e.g. `spamoor dropped funding nonce stalls EOA transaction generation`.
+         - Use the final Diagnosis/Evidence, not the early `cluster_label`, when discovery refined the root cause.
+         - Do not mention non-causal side findings in the title, even when they were useful during discovery.
+         - Keep it stable enough for humans to scan, but do not change `cheap_fingerprint` to match it.
+      2. Use this section order, omitting optional sections when they have no useful signal:
+         Mandatory:
          - `## Summary`
-         - `## Contents`
-         - `## Verdict`
-         - `## Attribution`
-         - `## Original CI Failure`
+         - `## Diagnosis`
+         - `## CI Failure`
          - `## Evidence`
-         - `## Reproduction`
-         - `## Regression Window`
-         - `## Source Dive`
          - `## Actions`
-         - `## Recurrence`
-         - `## Details`
-      3. Contents must be a manual TOC with stable GitHub anchors. Include `Summary` and every top-level heading after `Contents`; do not include `Contents` itself.
-      4. Summary should fit the first screen: one short paragraph plus at most three bullets. Include state, classification, notification confidence, diagnosis confidence, regression-pin confidence, implicated client/component, test, original shard(s), run link, and previous success when known. Do not put line-range implementation analysis in Summary; move that to Source Dive.
-      5. Verdict should be 2-4 precise sentences, max ~180 words. Put caveats in Details/Open questions unless they materially weaken the headline.
-      6. Attribution should tie 3-6 bullets to original CI evidence, runtime identity, previous-success diffs, and source-dive facts. Phrase this as why the named client/component is implicated, not as blame assignment. Keep each bullet focused; avoid restating the full evidence table.
-      7. Original CI Failure must separate original failed shard IDs and original failed client pairs from reproduction-only observations. Include artifact coverage gaps when summary/enclave-dump/kurtosis params were missing.
-      8. Evidence should show the top 3-5 original artifact evidence items with source, category, summary, and short fenced excerpts. Put original CI artifact evidence before derived live-enclave or source-dive evidence.
-      9. Reproduction must say whether the local run launched, reproduced, matched prior, and how many attempts ran. If `test_result="blocked"`, say the faithful full queue failed before the target test started and treat that as non-reproduction of the target. If `test_result="interrupted"`, say the watcher was interrupted before an assertoor terminal signal and do not present it as an assertoor timeout. Independently compare original failed pairs/tasks with reproduced failed pairs/tasks when available. If the implicated owner was originally in a passing pair, or the reproduced failing pairs differ materially from the original failing pairs, call that out as a shape mismatch even when `matches_prior=true`; keep original CI evidence primary and put the confidence caveat near the top.
-      10. Regression Window should include previous success run/link/SHA, changed/unchanged/unresolved components, and GitHub compare links when `commit_ranges` has `repo_url`, `previous_revision`, and `current_revision`.
-      11. Source Dive should show target kind, component, repo, commit, source identity exactness, confidence, literal-search signal, and recent-change signal. Render links from `r.source_dive.code_refs` first. Code links must be stable commit permalinks; if a link uses `HEAD`, a branch, or a commit different from the source-dive commit being reported, label it `unstable` and explain that the line numbers may drift. If `r.source_dive.commit_exact == false` or `r.source_dive.resolution_method` is `default-head-fallback` or `direct-repo-head-fallback`, explicitly say the linked code is repository HEAD used for investigation and is not proven to be the tested image/source commit. If code_refs are absent, construct up to three candidate links from repo URL, commit SHA, path, and line range. If `r.source_dive.alternate_targets` is non-empty, include a short "Next source targets if this is exhausted" note under Source Dive.
-      12. Actions must split into `Primary` and `Mitigations / follow-up`, with no more than five visible bullets total. Primary actions should follow from the Verdict, Attribution, Evidence, Regression Window, and Source Dive sections, not introduce a new unproven mechanism.
-      13. Recurrence should parse existing bullets from the prior body's `## Recurrence` section, add exactly one current-run bullet if absent, and replace a current pending bullet with `investigation completed from pending` when classification completed. Use reasons: `first seen`, `recurrence`, `investigation completed from pending`, `still failing (investigation pending)`. Keep the 30 most recent entries.
-      14. Details should use `<details>` blocks for runtime identity, full client matrix, test inspection, bug-hunt findings, source-dive detail/suggested changes, CI-side prior analysis when materially useful, ethereum-package launcher audit, and extra evidence. Use `Launcher audit (ethereum-package)` as the summary text, not `Framework audit`.
+         Optional, in this order when present:
+         - `## Regression Window` only when a previous success, changed/unchanged/unresolved components, or compare links are available.
+         - `## Source Links` only when source-dive cloned, resolved a target, found candidate paths/code refs, or has a meaningful source-identity caveat.
+         - `## Reproduction Check` only when reproduction was attempted, skipped for a material reason, launched but did not match, or replay fidelity affects interpretation.
+         - `## Details` only when collapsed details add real value beyond the visible sections.
+      3. Do not include a table of contents. The body is already short and sectioned; a TOC adds noise.
+      4. Summary should fit the first screen:
+         - First line is the bold linked run line (`**Run:** ...`).
+         - Second line is a compact result line: `**Result:** <classification> · **Owner:** <owner/component> · **Confidence:** <High|Medium|Low|Unknown>`.
+         - Then one direct paragraph plus at most three bullets. The paragraph must be at most two sentences and roughly 90 words. Do not start with filler like "Investigation completed." First sentence after the result line should name the failing test, owner/component, and mechanism. Include original shard(s) and previous success when known.
+         - Do not show the internal confidence-score breakdown in Summary. Do not mention `notification_confidence` in the visible body outside `Confidence Details`; that score is for automation gating, not maintainer triage.
+         - Do not put line-range implementation analysis in Summary; move that to Source Links. Keep all Summary bullets single-level and concise.
+         - Do not include non-causal side findings in Summary. If a side finding matters, put it in Details or a clearly separate Follow-up bullet.
+      5. Diagnosis should be 2-4 precise sentences, max ~150 words. State what failed, why the named component is implicated, and the durable caveat if one materially weakens certainty. Keep secondary mechanics in Evidence, Regression Window, Source Links, or Details. Do not use blame language; phrase ownership as evidence-based responsibility for the mechanism.
+         - Do not include non-causal side findings in Diagnosis unless the point is explicitly that they were refuted as causal.
+      6. CI Failure must separate original failed shard IDs, failed client pairs, failed task leaves, and artifact coverage gaps. Keep this factual and concise; do not mix in local reproduction-only observations here.
+      7. Evidence should be the main triage section: 4-7 bullets or a compact table tying original CI artifacts, runtime identity, previous-success diffs, reproduction observations, and source facts to the diagnosis. Put original CI artifact evidence first. Include only short excerpts when they carry exact error text or metrics; otherwise summarize and link/reference the artifact path. If using a table, keep columns to `Source`, `Signal`, and `Why it matters` unless a different three-column shape is clearly better.
+      8. Regression Window, when included, should show previous success run/link/SHA, changed/unchanged/unresolved components, and GitHub compare links when `commit_ranges` has `repo_url`, `previous_revision`, and `current_revision`. Put "not pinned" caveats here rather than repeating them throughout the issue.
+      9. Source Links, when included, should show target kind, component, repo, commit, source identity exactness, literal-search signal, and recent-change signal. Do not show numeric source-dive confidence here; put confidence numbers in `Confidence Details`. Render links from `r.source_dive.code_refs` first. Code links must be stable commit permalinks; if a link uses `HEAD`, a branch, or a commit different from the source-dive commit being reported, label it `unstable` and explain that the line numbers may drift. If `r.source_dive.commit_exact == false` or `r.source_dive.resolution_method` is `default-head-fallback` or `direct-repo-head-fallback`, explicitly say the linked code is repository HEAD used for investigation and is not proven to be the tested image/source commit. If code_refs are absent, construct up to three candidate links from repo URL, commit SHA, path, and line range. If `r.source_dive.alternate_probe_summary` is non-empty, include a short "Alternate source probe" note and any stable `alternate_code_refs`; if only `alternate_targets` are present, include a short "Next source targets if this is exhausted" note.
+      10. Reproduction Check, when included, should be short: whether local reproduction was attempted, whether the target failure reproduced, whether it matched the original CI shape, how many attempts ran, and whether replay pinned the original CI image digests/package ref. Never include enclave names, local URLs, ports, or workspace paths. If `runtime_fidelity_summary` names unpinned images/package source, say the replay was non-faithful and do not let a passing replay override original CI artifacts. If `test_result="blocked"`, say the faithful full queue failed before the target test started and treat that as non-reproduction of the target. If `test_result="scope-mismatch"`, say the narrowed local run did not faithfully target/watch the selected assertoor test and keep original CI evidence primary. If reproduced failed pairs/tasks differ materially from original, call that out once.
+      11. Actions must split into `Primary` and `Follow-up`, with no more than five visible bullets total. Primary actions should follow from Diagnosis, Evidence, and any included Regression Window or Source Links, not introduce a new unproven mechanism. Put non-causal side findings only in Follow-up, and label them as separate/off-causal-path.
+      12. Details should be compact and omitted entirely unless useful. Use at most four `<details>` blocks, chosen by usefulness: confidence details, runtime identity, full client matrix/test contract, extra bug-hunt/source-dive details, launcher audit, or extra evidence. Put non-causal side findings in Details only when they add actionable context, and clearly label them as not on the causal path. Each `<summary>` should be short and title-case. Do not duplicate Actions with a separate "source-dive suggested changes" block. Omit CI-side prior analysis unless it materially changed the final diagnosis. Use `Launcher audit (ethereum-package)` as the summary text, not `Framework audit`.
+      13. Confidence presentation:
+         - The visible Summary uses only the classification, owner/component, and a diagnosis-confidence bucket.
+         - Bucket mapping: `High` when `diagnosis_confidence >= 80`; `Medium` when `diagnosis_confidence >= 60`; `Low` when `diagnosis_confidence > 0`; `Unknown` when classification is `unknown`, no final diagnosis exists, or confidence is 0.
+         - Put the numeric confidence breakdown only in a collapsed `<details>` block near the bottom of `## Details` with `<summary>Confidence Details</summary>`. No confidence percentages should appear above `## Details`.
+         - In that block, use a compact table with rows for classification, owner, mechanism, source surface, source identity, regression pin, diagnosis, and notification. Include one short note column when useful. This block is for auditability; it must not be repeated in Summary, Diagnosis, or Actions.
 
-      Special case: for `covered-complete`, if an existing issue body is available and no investigation ran this time, preserve the existing diagnosis text verbatim. Update only marker lines, latest run metadata, and recurrence. If the issue already records `run_id` as `last-seen-run`, emit no cluster_report for that cluster.
+      Keep normal bodies around 10k-18k chars and hard cap near 35k chars. If the body is too long, drop from the bottom in this order: extra excerpts, CI-side prior analysis, full runtime identity, long bug-hunt finding bodies, long source-dive prose. Append `_Body truncated; see CI artifacts for full raw logs._`
 
-      Keep normal bodies around 20k-35k chars and hard cap near 55k chars. If the body is too long, drop from the bottom in this order: extra excerpts, CI-side prior analysis, full runtime identity, long bug-hunt finding bodies, long source-dive prose. Append `_Body truncated; see CI artifacts for full raw logs._`
+      Confidence calculation:
+      - Internally calculate a compact audit breakdown for the optional `Confidence Details` block: classifier signal, owner fit, mechanism fit, source identity, regression pinning, diagnosis, and notification readiness.
+      - Classification signal comes from `raw_findings[].classification.confidence`.
+      - Owner fit means the issue names the right responsible owner/component for the observed mechanism, not that the exact patch or passing-to-failing trigger is pinned. Lower it only for contradictory original CI evidence, uncertain runtime identity, or a source/reproduction finding that points to another owner. If regression pinning is weak but owner/source-surface evidence is solid, the note should say `exact trigger is unpinned; <component> remains the bug/fix surface`, not imply the owner may be elsewhere.
+      - Mechanism fit means the observed symptoms are explained by the described failure mechanism. Ground it in original CI artifacts first, then reproduction, regression-window evidence, bug-hunt observations, and source-dive facts. Do not reduce this solely because the exact regression-introducing commit is unknown; reduce it when the mechanism itself is speculative, contradicted, or not tied to the failed test behavior.
+      - Source surface confidence means the source dive found the code path, validation rule, state machine, emitted error, or reviewed file surface that explains the observed failure. Prefer `r.source_dive.source_surface_confidence` when present; otherwise use `r.source_dive.confidence`. This can be high even when the exact regression edit is unpinned.
+      - Source identity confidence should be high only when image digest/version/runtime metadata or previous-success/current-run revisions prove the tested commit. Cap at 75 for mutable/head fallback (`commit_exact=false`, `resolution_method=default-head-fallback`, or `resolution_method=direct-repo-head-fallback`) unless exact tested identity is proven elsewhere; cap at 60 when source_dive was expected but could not clone.
+      - Regression pinning confidence should be high only for a concrete previous-success/current-failure diff, commit, PR, or line-level change that explains the failure. Prefer `r.source_dive.regression_pin_confidence` when present. Use medium values when the regression window isolates a component/repo but not the exact edit, especially when `recent_change_signal` is strong. Use low values when only the current bug/source surface is localized, history is missing, or the behavior may be longstanding and newly exposed. Low regression pinning is a caveat, not by itself a reason to label the issue Low confidence.
+      - `diagnosis_confidence` is the conservative confidence that the rendered issue identifies the actual owner and mechanism/source surface. For final mode, start from the lower of `owner_confidence` and `mechanism_confidence`, then adjust with source and reproduction evidence: if source_dive attempted and cloned, use source surface confidence as grounding, not regression-pinning confidence. If source surface confidence is high (>=75) and original CI artifacts or faithful reproduction independently support the mechanism, diagnosis may be Medium/High even when regression pinning is low. If source_dive attempted/cloned but source surface confidence is zero, all verified source candidates are `false`, or the source dive contradicts the mechanism/owner, cap at 45. If source_dive was expected but failed to clone, cap at 60. If source identity is mutable/head-fallback (`commit_exact=false`, `resolution_method=default-head-fallback`, or `resolution_method=direct-repo-head-fallback`), cap at `source_identity_confidence` unless exact runtime identity is proven elsewhere. If reproduction did not match the original shape, cap at 75 unless original CI artifacts plus regression/source evidence independently isolate the owner/mechanism. Do not let high owner confidence override failed or contradictory source grounding, but also do not let low regression-pinning confidence suppress an otherwise well-supported client/tool diagnosis.
+      - `notification_confidence` is the confidence that this created issue is safe and useful to alert humans about. Base it on owner confidence, mechanism confidence, original CI evidence strength, source identity, and severity. Do not cap it solely because `regression_pin_confidence` is medium/low; instead include the pinning caveat in the issue. It can be 85+ when owner confidence is high, the mechanism is well supported, and source identity is adequate, even if the exact regression edit is not pinned. Cap at 60 for `classification="unknown"` or owner confidence below 70. Cap at 75 for mutable/head-fallback source identity unless runtime identity is proven elsewhere. Cap at 80 for reproduction shape mismatch unless original CI artifacts plus regression/source evidence independently isolate the owner/mechanism.
+      - `confidence_bucket` is the human-facing bucket derived from `diagnosis_confidence`: `High` >= 80, `Medium` >= 60, `Low` > 0, `Unknown` otherwise.
 
-      Confidence outputs:
-      - `classification_confidence` is the upstream classifier's owner/type confidence. For final mode, set it from `raw_findings[].classification.confidence`; for pending and recurrence modes, set it to 0.
-      - `owner_confidence` is confidence that the issue names the right responsible owner/component, not that the exact patch is pinned. Start from `classification_confidence`, then lower it only for contradictory original CI evidence, uncertain runtime identity, or a source/reproduction finding that points to another owner.
-      - `mechanism_confidence` is confidence that the observed symptoms are explained by the described failure mechanism. Ground it in original CI artifacts first, then reproduction, regression-window evidence, bug-hunt observations, and source-dive facts. Do not reduce this solely because the exact regression-introducing commit is unknown; reduce it when the mechanism itself is speculative, contradicted, or not tied to the failed test behavior.
-      - `source_identity_confidence` is confidence that inspected source code corresponds to the runtime that failed. Use high values only when image digest/version/runtime metadata or previous-success/current-run revisions prove the tested commit. Cap at 75 for mutable/head fallback (`commit_exact=false`, `resolution_method=default-head-fallback`, or `resolution_method=direct-repo-head-fallback`) unless exact tested identity is proven elsewhere; cap at 60 when source_dive was expected but could not clone.
-      - `regression_pin_confidence` is confidence that the investigation identifies the specific regression-introducing code/config change. Use high values only for a concrete previous-success/current-failure diff, commit, PR, or line-level change that explains the failure. Use medium values when the regression window isolates a component/repo but not the exact edit, especially when `recent_change_signal` is strong. Use low values when only the current bug surface is localized, history is missing, or the behavior may be longstanding and newly exposed.
-      - `diagnosis_confidence` is the conservative confidence that the rendered issue identifies the actual mechanism and source surface. For final mode, start from the lower of `owner_confidence` and `mechanism_confidence`, then cap it with source and reproduction evidence: if source_dive attempted and cloned, do not exceed source_dive confidence unless the only source-dive weakness is explicitly regression pinning and the mechanism is independently proven by original CI artifacts; if source_dive attempted/cloned but confidence is zero, or all verified source candidates are `false`, cap at 45; if source_dive was expected but failed to clone, cap at 60; if source identity is mutable/head-fallback (`commit_exact=false`, `resolution_method=default-head-fallback`, or `resolution_method=direct-repo-head-fallback`), cap at `source_identity_confidence`; if reproduction did not match the original shape, cap at 75 unless original CI artifacts plus regression/source evidence are independently strong. Do not let high owner confidence override failed or contradictory source grounding.
-      - `notification_confidence` is the confidence that this final touched issue is safe and useful to alert humans about. Base it on owner confidence, mechanism confidence, original CI evidence strength, source identity, and severity. Do not cap it solely because `regression_pin_confidence` is medium/low; instead include the pinning caveat in the issue. It can be 85+ when owner confidence is high, the mechanism is well supported, and source identity is adequate, even if the exact regression edit is not pinned. Cap at 60 for `classification="unknown"` or owner confidence below 70. Cap at 75 for mutable/head-fallback source identity unless runtime identity is proven elsewhere. Cap at 80 for reproduction shape mismatch unless original CI artifacts plus regression/source evidence independently isolate the owner/mechanism. For pending and recurrence modes, set all confidence fields to 0 because no current-run diagnosis exists.
-
-      Return `cluster_reports` with: `cheap_fingerprint`, `human_label`, `classification`, `classification_confidence`, `owner_confidence`, `mechanism_confidence`, `source_identity_confidence`, `regression_pin_confidence`, `diagnosis_confidence`, `notification_confidence`, `issue_body_md`, `labels`, `existing_issue_number`, `state_check_status`, and `desired_state`.
+      Return `cluster_reports` with: `cheap_fingerprint`, `cluster_label`, `issue_title`, `classification`, `diagnosis_confidence`, `notification_confidence`, `confidence_bucket`, `issue_body_md`, and `labels`.
     inputs:
-      mode: ${{ inputs.mode }}
-      clusters: ${{ inputs.clusters }}
-      cluster_fingerprints: ${{ inputs.cluster_fingerprints }}
-      cluster_human_labels: ${{ inputs.cluster_human_labels }}
-      statuses: ${{ inputs.statuses }}
       raw_findings: ${{ inputs.raw_findings }}
-      existing_issue_bodies: ${{ inputs.existing_issue_bodies }}
       target_repo: ${{ inputs.target_repo }}
       run_id: ${{ inputs.run_id }}
       run_url: ${{ inputs.run_url }}
@@ -822,38 +776,25 @@ tasks:
             properties:
               cheap_fingerprint:
                 type: string
-              human_label:
+              cluster_label:
+                type: string
+              issue_title:
                 type: string
               classification:
                 type: string
-              classification_confidence:
-                type: number
-              owner_confidence:
-                type: number
-              mechanism_confidence:
-                type: number
-              source_identity_confidence:
-                type: number
-              regression_pin_confidence:
-                type: number
               diagnosis_confidence:
                 type: number
               notification_confidence:
                 type: number
+              confidence_bucket:
+                type: string
               issue_body_md:
                 type: string
               labels:
                 type: array
                 items:
                   type: string
-              existing_issue_number:
-                type: number
-              state_check_status:
-                type: string
-              desired_state:
-                type: string
-                enum: [pending, investigating, complete]
-            required: [cheap_fingerprint, human_label, classification, classification_confidence, owner_confidence, mechanism_confidence, source_identity_confidence, regression_pin_confidence, diagnosis_confidence, notification_confidence, issue_body_md, labels, existing_issue_number, state_check_status, desired_state]
+            required: [cheap_fingerprint, cluster_label, issue_title, classification, diagnosis_confidence, notification_confidence, confidence_bucket, issue_body_md, labels]
         summary:
           type: string
 outputs:

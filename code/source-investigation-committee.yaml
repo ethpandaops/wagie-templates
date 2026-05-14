@@ -7,7 +7,7 @@ authors: [savid]
 homepage: https://github.com/ethpandaops/wagie-templates
 repository: https://github.com/ethpandaops/wagie-templates
 description: >-
-  Use when candidate source files need multi-perspective investigation against observed failure evidence; fans out investigator personas in parallel — each reads the candidate files and assesses whether they contain the bug surface — then a judge converges agreement, ranks the top candidates, and writes a unified root-cause description with confidence. Mirrors the code-review-committee shape but takes (workdir + candidate paths + evidence) instead of a diff. Language-agnostic.
+  Use when candidate source files need multi-perspective investigation against observed failure evidence; fans out investigator personas in parallel — each reads the candidate files and assesses whether they contain the bug surface — then a judge converges agreement, ranks the top candidates, and writes a unified source-surface diagnosis with separate source-surface, regression-pinning, and fix-target confidence. Mirrors the code-review-committee shape but takes (workdir + candidate paths + evidence) instead of a diff. Language-agnostic.
 tags: ["investigation", "committee", "source-dive", "parallel-review", "bug-hunt"]
 defaults:
   retryable: true
@@ -200,6 +200,7 @@ tasks:
       - A refutation must cite SPECIFIC code in the candidate repo that contradicts the panel's claim. "Looks fine to me," "could be elsewhere," "might be a config thing" are NOT refutations. They are gestures.
       - This task is scoped to the candidate repo selected upstream. To refute a panel claim, you must either (a) show the cited code paths actually behave correctly under the observed failure conditions, or (b) propose a DIFFERENT file in THE SAME REPO that better explains the failure.
       - Absence of the bug in a panel-cited file is not proof that the upstream target selection was wrong. First surface stronger in-repo alternatives as `missed_paths`; if no in-repo evidence survives, say the candidate set is exhausted rather than shifting blame to another repo.
+      - A file can be the correct source surface even when it did not change in the previous-success/current-failure window. Treat that as weak regression pinning, not as proof the file or component did not cause this failure.
 
       For each candidate the panel marked `plausible`:
       1. Re-read the cited code in `workdir` at the indicated `line_range` (± 30 lines context).
@@ -263,11 +264,11 @@ tasks:
     needs: [review_panel, falsify]
     selection: {capabilities: [reasoning]}
     run: source-investigation-judge
-    quality-gate: "${{ has(result.root_cause_description) && size(result.root_cause_description) > 0 && has(result.top_candidates) && has(result.confidence) }}"
+    quality-gate: "${{ has(result.root_cause_description) && size(result.root_cause_description) > 0 && has(result.top_candidates) && has(result.confidence) && has(result.source_surface_confidence) && has(result.regression_pin_confidence) && has(result.fix_target_confidence) }}"
     instructions: |-
       You are the judge of a source-investigation committee. Specialist investigators have independently read the candidate files and produced findings against the failure evidence; a separate adversarial reviewer has then read those findings and tried to refute them. Your job is to converge their work into a single, authoritative diagnosis that respects both the cooperative and adversarial signals.
 
-      Scope check: the investigation was routed to this repo by upstream evidence, but your job is to report what the candidate files actually support. If the panel and falsifier together cannot localise the bug to a specific file with confidence, output "low confidence in cited file, suggest expanding in-repo candidate search to <missed_paths>" when missed paths exist, or "candidate set exhausted; upstream target selection needs review" when no in-repo evidence survives.
+      Scope check: this task is limited to the provided repository and candidate files. Report what those files actually support. Keep two questions separate: (a) whether these files explain the observed failure/source surface, and (b) whether a specific regression-introducing edit is pinned. If the panel and falsifier together cannot localise the bug surface to a specific file with confidence, output "low confidence in cited file, suggest expanding in-repo candidate search to <missed_paths>" when missed paths exist, or "candidate set exhausted; target selection needs review" when no in-repo evidence survives.
 
       Process:
       1. For each candidate path mentioned across reviews, collect every finding that touched it. Group by path.
@@ -284,14 +285,14 @@ tasks:
          - `relevance_assessment` — one paragraph synthesising what the candidate plausibly contains and why it ties to the evidence; explicitly note when the falsifier weakened it
          - `suggested_change` — synthesised NL fix description (not a diff). Prefer the simplest plausible fix when investigators disagree on approach
          - `agreed_by` — array of persona roles that supported this candidate
-      7. Write `root_cause_description` — 4-8 sentences synthesising the most plausible root cause across the top candidates, explicitly tying back to the original `bug_context` and `evidence_excerpts`. Cite the falsifier's strongest counter-points when they remain unresolved. State uncertainty plainly.
+      7. Write `root_cause_description` — 4-8 sentences synthesising the most plausible root cause across the top candidates, explicitly tying back to the original `bug_context` and `evidence_excerpts`. Cite the falsifier's strongest counter-points when they remain unresolved. State uncertainty plainly. If candidate files match the runtime failure but did not change in the regression window, say they are the source surface or fix surface and that the exact regression edit remains unpinned.
          - Keep the description scoped to this repo's evidence. If confidence is low, say whether to expand in-repo candidate search or review upstream target selection; do not invent an alternate owner.
       8. Render `suggested_change_md` — markdown with the `root_cause_description` followed by a bulleted suggested-changes list (one bullet per top candidate).
-      9. Compute `confidence` (0-100). The falsifier signal MUST be reflected here:
-         - 80+ requires at least 2 personas agreeing on one candidate AND falsifier verdict `survives` AND average plausibility ≥ 75
-         - 60-79 = strong panel support but falsifier `weakened`, OR moderate panel support with `survives`
-         - 40-59 = thin panel support, or panel split, or falsifier `weakened` against weak panel support
-         - <40 = falsifier `refuted` top candidates, or panel could not agree. At <40 confidence, the suggested next step is to expand the candidate set within this repo when `missed_paths` exist; otherwise mark the source target as exhausted so upstream routing can review the next target.
+      9. Compute separate confidence axes:
+         - `source_surface_confidence` (0-100): confidence that this repo/file set explains the observed failure mechanism or emitted error path. The falsifier signal MUST be reflected here: 80+ requires at least 2 personas agreeing on one candidate, code-grounded evidence, and no strong refutation; 60-79 = strong panel support with a weakened caveat, or moderate panel support that survives; 40-59 = thin panel support, panel split, or a weakened leading candidate; <40 = refuted top candidates or no agreement. Do NOT reduce this solely because the exact regression-introducing edit is unknown or the code existed in a previous passing version.
+         - `regression_pin_confidence` (0-100): confidence that the exact regressing edit is pinned. 80+ needs a concrete commit/PR/line-level diff that explains the failure; 60-79 means the changed repo/component is isolated but the precise edit is still inferred; 30-59 means the runtime owner changed but the reviewed source surface is unchanged or the cause may be latent/newly exposed; <30 means history is missing, contradictory, or points away from a recent source change.
+         - `fix_target_confidence` (0-100): confidence that the top candidates are the right place for a patch or defensive hardening. This can be lower than source-surface confidence when the files only emit/report the symptom.
+         - `confidence`: set equal to `source_surface_confidence`. Also return the dedicated confidence axes for callers that need more detail.
 
       BIAS CHECK: A `survives` from the falsifier is a strong positive signal — don't ignore it. A `refuted` is a strong negative — don't bury it. A correctly-pessimistic verdict beats a confidently-wrong one. Low confidence is honest when the code evidence is thin.
 
@@ -308,6 +309,9 @@ tasks:
       suggested_change_md: "${{ has(result.suggested_change_md) ? result.suggested_change_md : '' }}"
       top_candidates: "${{ result.top_candidates }}"
       confidence: "${{ result.confidence }}"
+      source_surface_confidence: "${{ result.source_surface_confidence }}"
+      regression_pin_confidence: "${{ result.regression_pin_confidence }}"
+      fix_target_confidence: "${{ result.fix_target_confidence }}"
       agreement_score: "${{ has(result.agreement_score) ? result.agreement_score : 0 }}"
       schema:
         root_cause_description:
@@ -333,6 +337,12 @@ tasks:
                   type: string
             required: [path, relevance_assessment, suggested_change]
         confidence:
+          type: number
+        source_surface_confidence:
+          type: number
+        regression_pin_confidence:
+          type: number
+        fix_target_confidence:
           type: number
         agreement_score:
           type: number
@@ -396,33 +406,47 @@ tasks:
     if: "${{ size(tasks.judge.outputs.top_candidates) > 0 }}"
     selection: {capabilities: [reasoning]}
     run: calibrate-source-investigation-confidence
-    quality-gate: "${{ has(result.confidence) && has(result.top_candidates) }}"
+    quality-gate: "${{ has(result.confidence) && has(result.source_surface_confidence) && has(result.regression_pin_confidence) && has(result.fix_target_confidence) && has(result.top_candidates) }}"
     instructions: |-
-      Calibrate the source-investigation confidence after the grounding check.
+      Calibrate the source-investigation confidence axes after the grounding check.
 
       Procedure:
-      1. Start from `judge_confidence`.
-      2. Use `verified_candidates` as the returned `top_candidates` when present, preserving every field. If verification did not produce candidates, return `judge_top_candidates` and `judge_confidence`.
-      3. Apply caps based on verification:
+      1. Start from the judge's `source_surface_confidence`, `regression_pin_confidence`, `fix_target_confidence`, and compatibility `confidence`.
+      2. Use `verified_candidates` as the returned `top_candidates` when present, preserving every field. If verification did not produce candidates, return `judge_top_candidates` and the judge scores unchanged.
+      3. Apply verification caps to `source_surface_confidence` and `fix_target_confidence`:
          - 80+ requires at least one top candidate with `verified="true"` and no leading candidate with `verified="false"`.
-         - If the leading candidate is `verified="false"`, cap confidence at 45.
-         - If every candidate is `verified="false"`, cap confidence at 30.
-         - If any candidate is `verified="false"` but at least one survives, cap confidence at 65.
-         - If every candidate is `verified="uncertain"`, cap confidence at 60.
-         - If the leading candidate is `verified="uncertain"` and another candidate is verified true, cap confidence at 75.
-      4. Never raise confidence above `judge_confidence`. The goal is to prevent an ungrounded or contradicted code citation from looking high-confidence downstream.
+         - If the leading candidate is `verified="false"`, cap at 45.
+         - If every candidate is `verified="false"`, cap at 30.
+         - If any candidate is `verified="false"` but at least one survives, cap at 65.
+         - If every candidate is `verified="uncertain"`, cap at 60.
+         - If the leading candidate is `verified="uncertain"` and another candidate is verified true, cap at 75.
+      4. Do not lower `source_surface_confidence` merely because `regression_pin_confidence` is low. A verified error path can be high-confidence even when the exact introducing edit is unknown.
+      5. Preserve `regression_pin_confidence` unless every candidate is verified false; in that case cap it at 30 because the reviewed history is no longer grounded in surviving source candidates.
+      6. Never raise any score above the judge's corresponding score. The goal is to prevent an ungrounded or contradicted code citation from looking high-confidence downstream.
 
-      Return `confidence`, `top_candidates`, and a concise `confidence_note` explaining any cap that was applied.
+      Return `confidence` equal to calibrated `source_surface_confidence`, plus all dedicated confidence axes, `top_candidates`, and a concise `confidence_note` explaining any cap or regression-pinning caveat.
     inputs:
       judge_confidence: ${{ tasks.judge.outputs.confidence }}
+      judge_source_surface_confidence: ${{ tasks.judge.outputs.source_surface_confidence }}
+      judge_regression_pin_confidence: ${{ tasks.judge.outputs.regression_pin_confidence }}
+      judge_fix_target_confidence: ${{ tasks.judge.outputs.fix_target_confidence }}
       judge_top_candidates: ${{ tasks.judge.outputs.top_candidates }}
       verified_candidates: "${{ has(tasks.verify_findings.outputs.verified_candidates) ? tasks.verify_findings.outputs.verified_candidates : [] }}"
     outputs:
       confidence: "${{ result.confidence }}"
+      source_surface_confidence: "${{ result.source_surface_confidence }}"
+      regression_pin_confidence: "${{ result.regression_pin_confidence }}"
+      fix_target_confidence: "${{ result.fix_target_confidence }}"
       top_candidates: "${{ result.top_candidates }}"
       confidence_note: "${{ has(result.confidence_note) ? result.confidence_note : '' }}"
       schema:
         confidence:
+          type: number
+        source_surface_confidence:
+          type: number
+        regression_pin_confidence:
+          type: number
+        fix_target_confidence:
           type: number
         top_candidates:
           type: array
@@ -452,6 +476,9 @@ outputs:
   suggested_change_md: ${{ tasks.judge.outputs.suggested_change_md }}
   top_candidates: "${{ has(tasks.calibrate_confidence.outputs.top_candidates) ? tasks.calibrate_confidence.outputs.top_candidates : (has(tasks.verify_findings.outputs.verified_candidates) ? tasks.verify_findings.outputs.verified_candidates : tasks.judge.outputs.top_candidates) }}"
   confidence: "${{ has(tasks.calibrate_confidence.outputs.confidence) ? tasks.calibrate_confidence.outputs.confidence : tasks.judge.outputs.confidence }}"
+  source_surface_confidence: "${{ has(tasks.calibrate_confidence.outputs.source_surface_confidence) ? tasks.calibrate_confidence.outputs.source_surface_confidence : tasks.judge.outputs.source_surface_confidence }}"
+  regression_pin_confidence: "${{ has(tasks.calibrate_confidence.outputs.regression_pin_confidence) ? tasks.calibrate_confidence.outputs.regression_pin_confidence : tasks.judge.outputs.regression_pin_confidence }}"
+  fix_target_confidence: "${{ has(tasks.calibrate_confidence.outputs.fix_target_confidence) ? tasks.calibrate_confidence.outputs.fix_target_confidence : tasks.judge.outputs.fix_target_confidence }}"
   confidence_note: "${{ has(tasks.calibrate_confidence.outputs.confidence_note) ? tasks.calibrate_confidence.outputs.confidence_note : '' }}"
   agreement_score: ${{ tasks.judge.outputs.agreement_score }}
   reviews: ${{ tasks.review_panel.outputs.reviews }}

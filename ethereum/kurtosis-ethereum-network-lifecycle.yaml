@@ -98,7 +98,7 @@ inputs:
     type: string
     default: design
     description: >-
-      Where the running network's configuration comes from. `design` (default) calls `kurtosis-ethereum-config` to design and optionally launch a fresh network. `existing-enclave` assumes the enclave is already running (launched elsewhere) and skips both design and launch — the lifecycle only inspects the live enclave and synthesises `config_summary` and `effective_client_pairs` from the observed service inventory.
+      Where the running network's configuration comes from. `design` (default) calls `kurtosis-ethereum-config` to design and optionally launch a fresh network. `existing-enclave` assumes the enclave is already running (launched elsewhere) and skips both design and launch — the lifecycle only inspects the running network and synthesises `config_summary` and `effective_client_pairs` from the observed service inventory.
     schema:
       type: string
       enum: [design, existing-enclave]
@@ -187,7 +187,7 @@ tasks:
     timeout: 30m
     quality-gate: "${{ has(result.config_summary) && size(result.config_summary) > 0 && has(result.effective_client_pairs) }}"
     instructions: |-
-      Synthesize a `config_summary` and `effective_client_pairs` array from the inspected live enclave's service inventory. The original config artifact is not available — derive structure from observed service names.
+      Synthesize a `config_summary` and `effective_client_pairs` array from the inspected running network's service inventory. The original config artifact is not available — derive structure from observed service names.
 
       Conventions for kurtosis-ethereum-package service names (loose; do best-effort matching):
       - `el-<idx>-<el_type>-<cl_type>` — execution client; the first token after the index is the EL type (e.g. reth, geth, nethermind, besu, erigon).

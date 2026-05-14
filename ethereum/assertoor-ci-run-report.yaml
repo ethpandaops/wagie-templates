@@ -7,7 +7,7 @@ authors: [savid]
 homepage: https://github.com/ethpandaops/wagie-templates
 repository: https://github.com/ethpandaops/wagie-templates
 description: >-
-  Use when an assertoor CI investigation has finished and needs an operator-facing markdown run report. Usually called by assertoor-ci-investigate after issue rendering and publishing.
+  Use when an assertoor CI investigation has finished and needs an operator-facing markdown run report.
 tags: ["assertoor", "ci", "report", "triage", "summary"]
 defaults:
   retryable: true
@@ -20,7 +20,7 @@ inputs:
   issue_repo:
     type: string
     required: true
-    description: GitHub repository where canonical ci-investigate issues are created or updated.
+    description: GitHub repository where ci-investigate issues are created.
   workflow_ref:
     type: string
     required: true
@@ -29,46 +29,6 @@ inputs:
     type: string
     default: ""
     description: Run id provided by the caller, when pinned; empty means the fetch step selected the run.
-  schema_version:
-    type: number
-    required: true
-    description: Marker schema version used by the investigation.
-  skip_reproduction:
-    type: boolean
-    required: true
-    description: Whether the investigation skipped local Kurtosis reproduction.
-  max_bug_hunt_rounds:
-    type: number
-    required: true
-    description: Maximum bug-hunt rounds used by the investigation.
-  reproduction_attempt_timeout_minutes:
-    type: number
-    required: true
-    description: Per-attempt timeout used by the reproduction watcher.
-  reproduction_attempts:
-    type: number
-    required: true
-    description: Maximum reproduction attempts per cluster.
-  narrow_to_failing_test:
-    type: boolean
-    required: true
-    description: Whether reproduction narrowed the assertoor queue to the originally failing test.
-  enable_source_dive:
-    type: boolean
-    required: true
-    description: Whether source-dive investigation was enabled.
-  discord_min_confidence:
-    type: number
-    default: 85
-    description: Minimum notification confidence required for Discord notification inclusion for known-classification issues.
-  staleness_days:
-    type: number
-    required: true
-    description: Staleness threshold used by issue state-check.
-  closed_context_days:
-    type: number
-    required: true
-    description: Recently closed issue context window used for fingerprint naming only.
   run_id:
     type: string
     required: true
@@ -116,7 +76,7 @@ inputs:
         properties:
           cheap_fingerprint:
             type: string
-          human_label:
+          cluster_label:
             type: string
           representative_index:
             type: number
@@ -149,20 +109,14 @@ inputs:
             type: number
           issue_url:
             type: string
-          state:
+          schema_version:
+            type: number
+          classification:
             type: string
-          issue_state:
-            type: string
-          marker_state:
-            type: string
-          last_seen_at:
-            type: string
-          last_investigated_at:
-            type: string
-  worklist_items:
+  investigation_items:
     type: array
     default: []
-    description: Worklist entries that were investigated or resumed.
+    description: State-check entries that were investigated.
     schema:
       type: array
       items:
@@ -182,33 +136,10 @@ inputs:
             type: string
           reason:
             type: string
-  recurrence_worklist_items:
+  skipped_items:
     type: array
     default: []
-    description: Worklist entries that were recurrence-updated without expensive investigation worker placement.
-    schema:
-      type: array
-      items:
-        type: object
-        properties:
-          cluster_index:
-            type: number
-          fingerprint:
-            type: string
-          action:
-            type: string
-          state_check_status:
-            type: string
-          issue_number:
-            type: number
-          issue_url:
-            type: string
-          reason:
-            type: string
-  skipped_worklist_items:
-    type: array
-    default: []
-    description: Worklist entries skipped because no action was needed, another pending issue already owns them, or the status was unknown.
+    description: State-check entries skipped because no action was needed, an ignored issue suppresses them, an existing issue already covers them, or the status was unknown.
     schema:
       type: array
       items:
@@ -225,56 +156,6 @@ inputs:
           issue_url:
             type: string
           reason:
-            type: string
-  pending_publish_results:
-    type: array
-    default: []
-    description: GitHub issue create/update results from the early pending reservation publish.
-    schema:
-      type: array
-      items:
-        type: object
-        properties:
-          cheap_fingerprint:
-            type: string
-          issue_number:
-            type: number
-          issue_url:
-            type: string
-          action:
-            type: string
-          issue_body_chars:
-            type: number
-          deduplicated_issue_numbers:
-            type: array
-            items:
-              type: number
-          note:
-            type: string
-  recurrence_publish_results:
-    type: array
-    default: []
-    description: GitHub issue update results from recurrence-only covered-complete issue updates.
-    schema:
-      type: array
-      items:
-        type: object
-        properties:
-          cheap_fingerprint:
-            type: string
-          issue_number:
-            type: number
-          issue_url:
-            type: string
-          action:
-            type: string
-          issue_body_chars:
-            type: number
-          deduplicated_issue_numbers:
-            type: array
-            items:
-              type: number
-          note:
             type: string
   raw_findings:
     type: array
@@ -289,7 +170,7 @@ inputs:
             type: number
           cheap_fingerprint:
             type: string
-          human_label:
+          cluster_label:
             type: string
           representative:
             type: object
@@ -311,7 +192,7 @@ inputs:
                     type: boolean
                   has_enclave_dump:
                     type: boolean
-                  has_claude_output:
+                  has_ai_summary_artifact:
                     type: boolean
                   has_kurtosis_params:
                     type: boolean
@@ -320,6 +201,21 @@ inputs:
                     items:
                       type: string
                   notes:
+                    type: string
+              package_runtime_identity:
+                type: object
+                properties:
+                  package_ref:
+                    type: string
+                  package_started_at:
+                    type: string
+                  source_repo:
+                    type: string
+                  source_revision:
+                    type: string
+                  source:
+                    type: string
+                  evidence:
                     type: string
           test_inspection:
             type: object
@@ -337,10 +233,22 @@ inputs:
                 type: boolean
               test_result:
                 type: string
-              observed_signal:
-                type: string
               summary:
                 type: string
+              launch_summary:
+                type: string
+              runtime_fidelity_summary:
+                type: string
+              package_ref_used:
+                type: string
+              pinned_images:
+                type: array
+                items:
+                  type: string
+              unpinned_images:
+                type: array
+                items:
+                  type: string
           regression:
             type: object
             properties:
@@ -387,6 +295,18 @@ inputs:
                 type: number
               recent_change_signal_notes:
                 type: string
+              alternate_probe_summary:
+                type: string
+              alternate_probe_confidence:
+                type: number
+              confidence:
+                type: number
+              source_surface_confidence:
+                type: number
+              regression_pin_confidence:
+                type: number
+              fix_target_confidence:
+                type: number
           launcher_audit:
             type: object
             properties:
@@ -397,7 +317,7 @@ inputs:
   cluster_reports:
     type: array
     default: []
-    description: Canonical per-cluster issue bodies and labels produced by issue rendering.
+    description: Per-cluster issue bodies and labels produced by issue rendering.
     schema:
       type: array
       items:
@@ -405,87 +325,36 @@ inputs:
         properties:
           cheap_fingerprint:
             type: string
-          human_label:
+          cluster_label:
+            type: string
+          issue_title:
             type: string
           classification:
             type: string
-          classification_confidence:
-            type: number
-          owner_confidence:
-            type: number
-          mechanism_confidence:
-            type: number
-          source_identity_confidence:
-            type: number
-          regression_pin_confidence:
-            type: number
           diagnosis_confidence:
             type: number
           notification_confidence:
             type: number
+          confidence_bucket:
+            type: string
           issue_body_md:
             type: string
           labels:
             type: array
             items:
               type: string
-          existing_issue_number:
-            type: number
-          state_check_status:
-            type: string
-          desired_state:
-            type: string
-  recurrence_cluster_reports:
-    type: array
-    default: []
-    description: Canonical issue bodies and labels produced by recurrence-only rendering.
-    schema:
-      type: array
-      items:
-        type: object
-        properties:
-          cheap_fingerprint:
-            type: string
-          human_label:
-            type: string
-          classification:
-            type: string
-          classification_confidence:
-            type: number
-          owner_confidence:
-            type: number
-          mechanism_confidence:
-            type: number
-          source_identity_confidence:
-            type: number
-          regression_pin_confidence:
-            type: number
-          diagnosis_confidence:
-            type: number
-          notification_confidence:
-            type: number
-          issue_body_md:
-            type: string
-          labels:
-            type: array
-            items:
-              type: string
-          existing_issue_number:
-            type: number
-          state_check_status:
-            type: string
-          desired_state:
-            type: string
   publish_results:
     type: array
     default: []
-    description: GitHub issue create/update/dedup/skipped results from issue upsert.
+    description: GitHub issue create/skipped results from final issue publishing.
     schema:
       type: array
       items:
         type: object
         properties:
           cheap_fingerprint:
+            type: string
+          issue_title:
             type: string
           issue_number:
             type: number
@@ -495,10 +364,6 @@ inputs:
             type: string
           issue_body_chars:
             type: number
-          deduplicated_issue_numbers:
-            type: array
-            items:
-              type: number
           note:
             type: string
 tasks:
@@ -510,38 +375,37 @@ tasks:
     instructions: |-
       Produce an operator-facing markdown report for this ci-investigate run. The reader is whoever opened the artifact looking for "what happened in last night's triage?" - write for that audience.
 
-      The report is delivered both as a `report` markdown artifact and a short `summary` string suitable for a Slack/Discord message or a workflow step-summary header.
+      The report is delivered both as a `report` markdown artifact and a short `summary` string suitable for notifications or a workflow step-summary header.
 
       Sections (in order):
 
       1. **Title + run metadata.** Title: `# CI Investigation Report - <human-friendly run identifier>`. Below it: source repo (read-only, where the CI ran), issue repo (where issues land - call out explicitly when source and issue repo differ), workflow path, run id linked to run_url, run started_at, head branch + short SHA.
 
-      2. **Top-line verdict (3-5 bullets).** Counts of: failed shards, root-cause clusters, issues created vs updated vs recurrence-only updated vs deduplicated vs skipped. When `no_failures == true`, say so prominently and skip downstream sections.
+      2. **Top-line verdict (3-5 bullets).** Counts of: failed shards, root-cause clusters, issues created vs skipped. When `no_failures == true`, say so prominently and skip investigation sections.
 
-      3. **Per-cluster table.** One row per cluster in publish order, including recurrence-only updates. Columns: `#`, `Cluster label`, `Classification (notify/diag confidence)`, `Issue`, `Action`, `Members`, `Affected pairs`, `Reproduced?`. The `Issue` column links to the canonical issue (use `<issue_url>` from publish_results or recurrence_publish_results). The `Action` column shows `created | updated | recurrence | deduplicated | skipped`. For final investigation rows, read labels/confidence from `cluster_reports`. For recurrence-only rows, read classification from `recurrence_cluster_reports` but render confidence as `prior diagnosis preserved` or `not rerun` instead of showing zero-valued current confidence fields. `Reproduced?` reflects the nested `reproduction` outcome (`yes`, `no (success)`, `no (timeout)`, `blocked`, `interrupted`, `skipped`, `launch failed`) or `not rerun` for recurrence-only updates.
+      3. **Per-cluster table.** One row per created/published cluster, plus skipped rows that explain why no new investigation ran. Columns: `#`, `Issue title`, `Classification`, `Confidence`, `Issue`, `Action`, `Members`, `Affected pairs`, `Reproduced?`. For created/published rows, use `cluster_report.issue_title` as the visible title and fall back to `cluster_label` only if needed. For skipped rows without a fresh `cluster_report`, use the early cluster `cluster_label`. The `Issue` column links to the issue using `<issue_url>` from `publish_results` or `skipped_items`. The `Action` column shows `created | skipped`. For created/published rows, render confidence from `confidence_bucket` when present, otherwise derive it from `notification_confidence`: `High` >= 80, `Medium` >= 60, `Low` > 0, `Unknown` otherwise. For skipped rows without a fresh `cluster_report`, render `Confidence` as `Existing issue` when `state_check_status == "covered-existing"`, `Ignored` when `state_check_status == "ignored"`, and `Not rerun` otherwise. Do not render `Unknown` for a state-check-suppressed existing issue; no fresh diagnosis was attempted. Do not show numeric confidence values in the table. `Reproduced?` reflects the nested `reproduction` outcome (`yes`, `no (success)`, `no (timeout)`, `blocked`, `scope mismatch`, `skipped`, `launch failed`) or `skipped` for rows that were not investigated.
 
-      4. **Per-cluster notes.** Keep this as an index, not a duplicate copy of the canonical issue body. Use at most 3 bullets per touched issue:
+      4. **Per-cluster notes.** Keep this as an index, not a duplicate copy of the issue body. Use at most 3 bullets per created/published issue or skipped row:
          - Issue link, action, and state-check status.
-         - Classification, notification confidence, diagnosis confidence, regression-pin confidence, and one-line owner reasoning. For recurrence-only updates, say the prior diagnosis was preserved and do not show zero current confidence values as a fresh verdict.
-         - Only the highest-signal reproduction/regression/source-dive note, with code details left to the issue body.
+         - For created/published rows: classification, confidence bucket, and one-line owner reasoning.
+         - For skipped rows: state-check status, prior classification when present, and the skip reason; say `not rerun` instead of inventing a confidence bucket.
+         - Only the highest-signal reproduction/regression/source-dive note, with code details left to the issue body. If a reproduction passed but `runtime_fidelity_summary` says image digests or package source were not pinned, call that out as a non-faithful replay rather than a clean refutation.
 
       Read original CI context from `raw_findings[].representative.*` and stage outcomes from nested objects (`test_inspection`, `reproduction`, `regression`, `bug_hunt`, `classification`, `source_dive`, `launcher_audit`).
 
       5. **Notable events.** Bullet list of anything worth flagging:
-         - Pending reservations created or updated before investigation (use `pending_publish_results`).
-         - Recurrence-only issues updated without Kurtosis investigation (use `recurrence_publish_results`).
-         - Clusters skipped by worklist policy because they were already recorded for this run, another pending issue owns them, or the status was unknown (use `skipped_worklist_items`).
-         - Duplicate issues closed by reconciliation (use `deduplicated_issue_numbers` from publish_results).
+         - Investigated clusters that did not publish an issue because no non-unknown verdict was produced (compare `raw_findings` to `cluster_reports`).
+         - Clusters skipped by state-check policy because an ignored issue suppresses them, an existing issue already covers them, or the status was unknown (use `skipped_items`).
          - Source-dive resolution failures (target_kind != skip but cloned=false).
-         - Any cluster where `publish action == skipped` due to the `ci-investigate:ignore` label.
-         - When `clusters_count == 0` but `failures_count > 0` (everything was deduped or covered) say so.
+         - Any cluster where `publish action == skipped` due to a GitHub publish failure.
+         - When `clusters_count == 0` but `failures_count > 0` say so.
          Skip the section if nothing notable.
 
-      6. **Inputs trail.** A small footer listing the inputs that produced this run: `source_repo`, `issue_repo`, `workflow_ref`, `requested_run_id` (when caller-pinned), `skip_reproduction`, `reproduction_attempts`, `reproduction_attempt_timeout_minutes`, `narrow_to_failing_test`, `max_bug_hunt_rounds`, `enable_source_dive`, `discord_min_confidence`, `staleness_days`, `closed_context_days`, `schema_version`.
+      6. **Run identity.** A small footer with only durable context needed to find the run again: source repo, issue repo when different, workflow path/ref, requested run id when caller-pinned, resolved run id linked to run_url, run started_at, head branch, and short head SHA. Do not list internal knobs such as reproduction attempts, notification thresholds, or schema version.
 
-      Length: roughly 30-90 lines depending on cluster count. Do not embed raw log dumps or long source-dive prose; those live in CI artifacts and the canonical issue body.
+      Length: roughly 30-90 lines depending on cluster count. Do not embed raw log dumps or long source-dive prose; those live in CI artifacts and the issue body.
 
-      `summary` (separate output): a 4-8 line plain-text/markdown TL;DR suitable for a Discord/Slack post. Format roughly: one headline line, one counts line, one bullet per touched issue (label + link + action + notification confidence when available, plus diagnosis/regression-pin confidence when materially lower). Never longer than 1500 chars.
+      `summary` (separate output): a 4-8 line plain-text/markdown TL;DR suitable for a compact notification. Format roughly: one headline line, one counts line, one bullet per created issue (final issue title + link + action + classification + confidence bucket) and one concise bullet for any skipped existing/ignored issue (early cluster label + link + action + state-check status + `not rerun`). Do not include numeric confidence values, and do not write `confidence Unknown` for skipped rows that were not rerun. Never longer than 1500 chars.
 
       Always write the markdown report to the `report` artifact slot. Always emit `summary`. When `no_failures == true`, both should still be produced - a "nothing failed tonight" report is itself useful.
     inputs:
@@ -549,16 +413,6 @@ tasks:
       issue_repo: ${{ inputs.issue_repo }}
       workflow_ref: ${{ inputs.workflow_ref }}
       requested_run_id: ${{ inputs.requested_run_id }}
-      schema_version: ${{ inputs.schema_version }}
-      skip_reproduction: ${{ inputs.skip_reproduction }}
-      max_bug_hunt_rounds: ${{ inputs.max_bug_hunt_rounds }}
-      reproduction_attempt_timeout_minutes: ${{ inputs.reproduction_attempt_timeout_minutes }}
-      reproduction_attempts: ${{ inputs.reproduction_attempts }}
-      narrow_to_failing_test: ${{ inputs.narrow_to_failing_test }}
-      enable_source_dive: ${{ inputs.enable_source_dive }}
-      discord_min_confidence: ${{ inputs.discord_min_confidence }}
-      staleness_days: ${{ inputs.staleness_days }}
-      closed_context_days: ${{ inputs.closed_context_days }}
       run_id: ${{ inputs.run_id }}
       run_url: ${{ inputs.run_url }}
       run_started_at: ${{ inputs.run_started_at }}
@@ -570,14 +424,10 @@ tasks:
       clusters_count: ${{ inputs.clusters_count }}
       clusters: ${{ inputs.clusters }}
       state_check_statuses: ${{ inputs.state_check_statuses }}
-      worklist_items: ${{ inputs.worklist_items }}
-      recurrence_worklist_items: ${{ inputs.recurrence_worklist_items }}
-      skipped_worklist_items: ${{ inputs.skipped_worklist_items }}
+      investigation_items: ${{ inputs.investigation_items }}
+      skipped_items: ${{ inputs.skipped_items }}
       raw_findings: ${{ inputs.raw_findings }}
       cluster_reports: ${{ inputs.cluster_reports }}
-      recurrence_cluster_reports: ${{ inputs.recurrence_cluster_reports }}
-      pending_publish_results: ${{ inputs.pending_publish_results }}
-      recurrence_publish_results: ${{ inputs.recurrence_publish_results }}
       publish_results: ${{ inputs.publish_results }}
     outputs:
       summary: ${{ result.summary }}
@@ -589,7 +439,7 @@ tasks:
           required: true
         summary:
           type: string
-          description: Short plain-text/markdown TL;DR (suitable for a Discord/Slack post or workflow step-summary header)
+          description: Short plain-text/markdown TL;DR suitable for notifications and workflow step summaries
 outputs:
   report: ${{ tasks.render.outputs.report }}
   summary: ${{ tasks.render.outputs.summary }}

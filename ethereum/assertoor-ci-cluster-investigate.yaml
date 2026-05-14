@@ -7,7 +7,7 @@ authors: [savid]
 homepage: https://github.com/ethpandaops/wagie-templates
 repository: https://github.com/ethpandaops/wagie-templates
 description: >-
-  Use when one assertoor CI failure cluster needs recurrence update, local Kurtosis reproduction, live bug-hunt, classification, source-dive, and cleanup. Usually called by assertoor-ci-investigate.
+  Use when one new assertoor CI failure cluster needs local Kurtosis reproduction, reproduction-guided bug-hunt, classification, source-dive, and cleanup.
 tags: ["assertoor", "ci", "ethereum", "cluster", "investigation", "kurtosis", "source-dive"]
 defaults:
   retryable: true
@@ -33,7 +33,7 @@ inputs:
   cheap_fingerprint:
     type: string
     required: true
-  human_label:
+  cluster_label:
     type: string
     required: true
   status:
@@ -48,11 +48,6 @@ inputs:
           type: number
         issue_url:
           type: string
-  work_action:
-    type: string
-    default: investigate
-    options: [investigate, resume, recurrence]
-    description: Worklist action. `recurrence` updates issue state only; other values may run expensive investigation.
   representative:
     type: object
     required: true
@@ -105,7 +100,7 @@ inputs:
               type: boolean
             has_enclave_dump:
               type: boolean
-            has_claude_output:
+            has_ai_summary_artifact:
               type: boolean
             has_kurtosis_params:
               type: boolean
@@ -115,6 +110,61 @@ inputs:
                 type: string
             notes:
               type: string
+        runtime_components:
+          type: array
+          items:
+            type: object
+            properties:
+              service_name:
+                type: string
+              role:
+                type: string
+              client:
+                type: string
+              image_ref:
+                type: string
+              image_id:
+                type: string
+              manifest_digest:
+                type: string
+              source_repo:
+                type: string
+              source_revision:
+                type: string
+              version:
+                type: string
+              build_info:
+                type: string
+              source:
+                type: string
+        package_runtime_identity:
+          type: object
+          properties:
+            package_ref:
+              type: string
+            package_started_at:
+              type: string
+            source_repo:
+              type: string
+            source_revision:
+              type: string
+            source:
+              type: string
+            evidence:
+              type: string
+        original_artifact_evidence:
+          type: array
+          items:
+            type: object
+            properties:
+              source:
+                type: string
+              category:
+                type: string
+              summary:
+                type: string
+              excerpt:
+                type: string
   skip_reproduction:
     type: boolean
     default: false
@@ -129,7 +179,7 @@ inputs:
     default: 4
   narrow_to_failing_test:
     type: boolean
-    default: false
+    default: true
   enable_source_dive:
     type: boolean
     default: true
@@ -159,34 +209,8 @@ inputs:
     type: string
     default: ""
 tasks:
-  reproduce:
-    if: "${{ inputs.work_action != 'recurrence' && inputs.skip_reproduction != true && inputs.status.status != 'covered-complete' && has(inputs.representative.kurtosis_params_path) && inputs.representative.kurtosis_params_path != '' }}"
-    uses: io.ethpandaops/assertoor-ci-kurtosis-reproduce@1.0.0
-    inputs:
-      enclave_name: ${{ inputs.enclave_name }}
-      kurtosis_params_path: ${{ inputs.representative.kurtosis_params_path }}
-      assertoor_test_name: ${{ inputs.representative.test_name }}
-      reproduction_attempt_timeout_minutes: ${{ inputs.reproduction_attempt_timeout_minutes }}
-      narrow_to_failing_test: ${{ inputs.narrow_to_failing_test }}
-      reproduction_attempts: ${{ inputs.reproduction_attempts }}
-      prior_summary: "${{ has(inputs.representative.prior_ai_summary) ? inputs.representative.prior_ai_summary : '' }}"
-    outputs:
-      launched: launched
-      enclave_name: enclave_name
-      assertoor_url: assertoor_url
-      services: services
-      launch_summary: launch_summary
-      reproduced: reproduced
-      test_result: test_result
-      observed_signal: observed_signal
-      reproduction_summary: reproduction_summary
-      evidence: evidence
-      matches_prior: matches_prior
-      attempts_made: attempts_made
-      attempts_converged: attempts_converged
-      attempt_log: attempt_log
   inspect_test:
-    if: "${{ inputs.work_action != 'recurrence' && inputs.status.status != 'covered-complete' && has(inputs.representative.test_name) && inputs.representative.test_name != '' && inputs.representative.test_name != 'kurtosis-startup' }}"
+    if: "${{ has(inputs.representative.test_name) && inputs.representative.test_name != '' && inputs.representative.test_name != 'kurtosis-startup' }}"
     uses: io.ethpandaops/assertoor-ci-test-inspect@1.0.0
     inputs:
       test_name: ${{ inputs.representative.test_name }}
@@ -197,7 +221,7 @@ tasks:
       test_summary: test_summary
       recent_test_changes: recent_test_changes
   regression_window:
-    if: "${{ inputs.work_action != 'recurrence' && inputs.status.status != 'covered-complete' && has(inputs.representative.shard_id) && inputs.representative.shard_id != '' }}"
+    if: "${{ has(inputs.representative.shard_id) && inputs.representative.shard_id != '' }}"
     uses: io.ethpandaops/assertoor-ci-regression-window@1.0.0
     inputs:
       source_repo: ${{ inputs.source_repo }}
@@ -227,94 +251,273 @@ tasks:
       confidence: confidence
       limitations: limitations
       regression_window: regression_window
-  bug_hunt:
-    needs: [reproduce, inspect_test, regression_window]
-    if: "${{ has(tasks.reproduce.outputs.reproduced) && tasks.reproduce.outputs.reproduced == true }}"
-    uses: io.ethpandaops/kurtosis-ethereum-bug-hunt@1.0.0
+  kurtosis_repro_session:
+    needs: [inspect_test, regression_window]
+    if: "${{ inputs.skip_reproduction != true && has(inputs.representative.kurtosis_params_path) && inputs.representative.kurtosis_params_path != '' }}"
+    selection:
+      sticky: true
+      labels: [kurtosis]
     inputs:
+      cluster: ${{ inputs.cluster }}
       enclave_name: ${{ inputs.enclave_name }}
-      launch: false
-      auto_cleanup: false
-      config_source: "existing-enclave"
-      max_iterations: ${{ inputs.max_bug_hunt_rounds }}
-      min_iterations: 1
-      stop_on_sufficient: true
-      prior_summary: "${{ has(inputs.representative.prior_ai_summary) ? inputs.representative.prior_ai_summary : '' }}"
+      cluster_label: ${{ inputs.cluster_label }}
+      representative: ${{ inputs.representative }}
+      gh_token: ${{ inputs.?gh_token }}
+      run_started_at: ${{ inputs.run_started_at }}
+      max_bug_hunt_rounds: ${{ inputs.max_bug_hunt_rounds }}
+      reproduction_attempt_timeout_minutes: ${{ inputs.reproduction_attempt_timeout_minutes }}
+      reproduction_attempts: ${{ inputs.reproduction_attempts }}
+      narrow_to_failing_test: ${{ inputs.narrow_to_failing_test }}
       test_context: "${{ has(tasks.inspect_test.outputs.test_summary) ? tasks.inspect_test.outputs.test_summary : '' }}"
-      regression_window: "${{ has(tasks.regression_window.outputs.regression_window) ? tasks.regression_window.outputs.regression_window : {} }}"
-      hunt_focus: "${{ inputs.representative.category == 'infra-startup' ? 'service-health' : 'general' }}"
-      goal: |-
-        Investigate this assertoor failure that just reproduced locally on the live enclave.
-        Test: ${{ inputs.representative.test_name }}
-        Failed step: ${{ inputs.representative.failed_step }}
-        Root failed step: ${{ has(inputs.representative.root_failed_step) ? inputs.representative.root_failed_step : inputs.representative.failed_step }}
-        Failure category: ${{ inputs.representative.category }}
-        Error signature: ${{ inputs.representative.error_signature }}
-        Cluster label: ${{ inputs.human_label }}
-        Affected shards: ${{ inputs.cluster.member_shard_ids }}
-        Evidence brief:
-        - Headline: ${{ has(inputs.representative.evidence_brief.headline) ? inputs.representative.evidence_brief.headline : '' }}
-        - Failure shape: ${{ has(inputs.representative.evidence_brief.failure_shape) ? inputs.representative.evidence_brief.failure_shape : '' }}
-        - Client scope: ${{ has(inputs.representative.evidence_brief.client_scope) ? inputs.representative.evidence_brief.client_scope : '' }}
-        - Task scope: ${{ has(inputs.representative.evidence_brief.task_scope) ? inputs.representative.evidence_brief.task_scope : '' }}
-        - Original artifact signal: ${{ has(inputs.representative.evidence_brief.artifact_signal) ? inputs.representative.evidence_brief.artifact_signal : '' }}
-        - Component hints: ${{ has(inputs.representative.evidence_brief.component_hints) ? inputs.representative.evidence_brief.component_hints : '' }}
-        - Routing notes: ${{ has(inputs.representative.evidence_brief.routing_notes) ? inputs.representative.evidence_brief.routing_notes : '' }}
-        Regression window summary:
-        ${{ has(tasks.regression_window.outputs.baseline_summary) ? tasks.regression_window.outputs.baseline_summary : 'not available' }}
-        Regression target ranking:
-        ${{ has(tasks.regression_window.outputs.target_ranking) ? tasks.regression_window.outputs.target_ranking : [] }}
+      regression_context: "${{ has(tasks.regression_window.outputs.regression_window) ? tasks.regression_window.outputs.regression_window : {} }}"
+      regression_summary: "${{ has(tasks.regression_window.outputs.baseline_summary) ? tasks.regression_window.outputs.baseline_summary : 'not available' }}"
+      regression_target_ranking: "${{ has(tasks.regression_window.outputs.target_ranking) ? tasks.regression_window.outputs.target_ranking : [] }}"
+    tasks:
+      reproduce:
+        uses: io.ethpandaops/assertoor-ci-kurtosis-reproduce@1.0.0
+        inputs:
+          enclave_name: ${{ inputs.enclave_name }}
+          kurtosis_params_path: ${{ inputs.representative.kurtosis_params_path }}
+          assertoor_test_name: ${{ inputs.representative.test_name }}
+          gh_token: ${{ inputs.?gh_token }}
+          run_started_at: ${{ inputs.run_started_at }}
+          runtime_components: "${{ has(inputs.representative.runtime_components) ? inputs.representative.runtime_components : [] }}"
+          package_runtime_identity: "${{ has(inputs.representative.package_runtime_identity) ? inputs.representative.package_runtime_identity : {} }}"
+          reproduction_attempt_timeout_minutes: ${{ inputs.reproduction_attempt_timeout_minutes }}
+          narrow_to_failing_test: ${{ inputs.narrow_to_failing_test }}
+          reproduction_attempts: ${{ inputs.reproduction_attempts }}
+          prior_summary: "${{ has(inputs.representative.prior_ai_summary) ? inputs.representative.prior_ai_summary : '' }}"
+        outputs:
+          launched: launched
+          enclave_name: enclave_name
+          assertoor_url: assertoor_url
+          services: services
+          launch_summary: launch_summary
+          runtime_fidelity_summary: runtime_fidelity_summary
+          package_ref_used: package_ref_used
+          pinned_images: pinned_images
+          unpinned_images: unpinned_images
+          reproduced: reproduced
+          test_result: test_result
+          reproduction_summary: reproduction_summary
+          evidence: evidence
+          matches_prior: matches_prior
+          attempts_made: attempts_made
+          attempts_converged: attempts_converged
+      bug_hunt:
+        needs: [reproduce]
+        if: "${{ has(tasks.reproduce.outputs.reproduced) && tasks.reproduce.outputs.reproduced == true }}"
+        uses: io.ethpandaops/kurtosis-ethereum-bug-hunt@1.0.0
+        inputs:
+          enclave_name: ${{ inputs.enclave_name }}
+          launch: false
+          auto_cleanup: false
+          config_source: "existing-enclave"
+          max_iterations: ${{ inputs.max_bug_hunt_rounds }}
+          min_iterations: 1
+          stop_on_sufficient: true
+          prior_summary: "${{ has(inputs.representative.prior_ai_summary) ? inputs.representative.prior_ai_summary : '' }}"
+          test_context: ${{ inputs.test_context }}
+          regression_window: ${{ inputs.regression_context }}
+          hunt_focus: "${{ inputs.representative.category == 'infra-startup' ? 'service-health' : 'general' }}"
+          goal: |-
+            Investigate this assertoor failure using the local reproduction that just reached the same failing outcome.
+            Test: ${{ inputs.representative.test_name }}
+            Failed step: ${{ inputs.representative.failed_step }}
+            Root failed step: ${{ has(inputs.representative.root_failed_step) ? inputs.representative.root_failed_step : inputs.representative.failed_step }}
+            Failure category: ${{ inputs.representative.category }}
+            Error signature: ${{ inputs.representative.error_signature }}
+            Cluster label: ${{ inputs.cluster_label }}
+            Affected shards: ${{ inputs.cluster.member_shard_ids }}
+            Evidence brief:
+            - Headline: ${{ has(inputs.representative.evidence_brief.headline) ? inputs.representative.evidence_brief.headline : '' }}
+            - Failure shape: ${{ has(inputs.representative.evidence_brief.failure_shape) ? inputs.representative.evidence_brief.failure_shape : '' }}
+            - Client scope: ${{ has(inputs.representative.evidence_brief.client_scope) ? inputs.representative.evidence_brief.client_scope : '' }}
+            - Task scope: ${{ has(inputs.representative.evidence_brief.task_scope) ? inputs.representative.evidence_brief.task_scope : '' }}
+            - Original artifact signal: ${{ has(inputs.representative.evidence_brief.artifact_signal) ? inputs.representative.evidence_brief.artifact_signal : '' }}
+            - Component hints: ${{ has(inputs.representative.evidence_brief.component_hints) ? inputs.representative.evidence_brief.component_hints : '' }}
+            - Routing notes: ${{ has(inputs.representative.evidence_brief.routing_notes) ? inputs.representative.evidence_brief.routing_notes : '' }}
+            Regression window summary:
+            ${{ inputs.regression_summary }}
+            Regression target ranking:
+            ${{ inputs.regression_target_ranking }}
 
-        Focus on confirming the root cause rather than rediscovering symptoms. The CI-side prior summary and original artifact evidence are provided separately; validate or refute them with concrete enclave evidence (logs, state, RPC). Compare the live reproduced enclave against the original dump evidence and distinguish mechanisms when relevant: devnet/network propagation, client-local policy or state handling, caller/workload account lifecycle, test design/config, and plain infra flake.
+            Focus on confirming the root cause rather than rediscovering symptoms. The CI-side prior summary and original artifact evidence are provided separately; validate or refute them with concrete local reproduction evidence (logs, state, RPC). Compare the reproduced network against the original dump evidence and distinguish mechanisms when relevant: devnet/network propagation, client-local policy or state handling, caller/workload account lifecycle, test design/config, and plain infra flake.
 
-        Investigation order:
-        - If the original artifacts contain a concrete RPC/API/log error emitted by a named client/service, probe that emitting component first: logs, RPC/API state, runtime image/build identity, and behavior. Treat the caller/orchestrator/generator as fallback unless there is evidence it sent invalid input.
-        - If the reproduced enclave differs from the original run because test lists, timeouts, config, image tags, or workload parameters changed, mark the repro as non-faithful. Explain the repro, but do not let it override the original artifact signal.
-        - Use the previous-success baseline to ask what changed between last known-good and current failure. Floating tags are meaningful only after resolving to digest/build/source revision from artifacts.
+            Investigation order:
+            - If the original artifacts contain a concrete RPC/API/log error emitted by a named client/service, probe that emitting component first: logs, RPC/API state, runtime image/build identity, and behavior. Treat the caller/orchestrator/generator as fallback unless there is evidence it sent invalid input.
+            - If the reproduced network differs from the original run because timeouts, config, image tags, workload parameters, or material queue/order effects changed, mark the repro as non-faithful. Intentional narrowing to the target test is acceptable for target-level reproduction unless evidence shows the original failure depends on earlier queued tests.
+            - Use the previous-success baseline to ask what changed between last known-good and current failure. Floating tags are meaningful only after resolving to digest/build/source revision from artifacts.
+        outputs:
+          findings: findings
+          remaining_gaps: remaining_gaps
+          summary: summary
+          recommended_actions: recommended_actions
+          completeness: completeness
+          information_gain: information_gain
+          iterations_used: iterations_used
+          converged: converged
+    finally:
+      cleanup_enclave:
+        uses: io.ethpandaops/kurtosis-enclave-cleanup@1.0.0
+        inputs:
+          enclave_name: ${{ inputs.enclave_name }}
+          force: true
+        outputs:
+          removed: removed
+          summary: summary
     outputs:
-      findings: findings
-      remaining_gaps: remaining_gaps
-      summary: summary
-      recommended_actions: recommended_actions
-      completeness: completeness
-      information_gain: information_gain
-      iterations_used: iterations_used
-      converged: converged
+      launched: "${{ has(tasks.reproduce.outputs.launched) ? tasks.reproduce.outputs.launched : false }}"
+      enclave_name: "${{ has(tasks.reproduce.outputs.enclave_name) ? tasks.reproduce.outputs.enclave_name : inputs.enclave_name }}"
+      assertoor_url: "${{ has(tasks.reproduce.outputs.assertoor_url) ? tasks.reproduce.outputs.assertoor_url : '' }}"
+      services: "${{ has(tasks.reproduce.outputs.services) ? tasks.reproduce.outputs.services : [] }}"
+      launch_summary: "${{ has(tasks.reproduce.outputs.launch_summary) ? tasks.reproduce.outputs.launch_summary : '' }}"
+      runtime_fidelity_summary: "${{ has(tasks.reproduce.outputs.runtime_fidelity_summary) ? tasks.reproduce.outputs.runtime_fidelity_summary : '' }}"
+      package_ref_used: "${{ has(tasks.reproduce.outputs.package_ref_used) ? tasks.reproduce.outputs.package_ref_used : '' }}"
+      pinned_images: "${{ has(tasks.reproduce.outputs.pinned_images) ? tasks.reproduce.outputs.pinned_images : [] }}"
+      unpinned_images: "${{ has(tasks.reproduce.outputs.unpinned_images) ? tasks.reproduce.outputs.unpinned_images : [] }}"
+      reproduced: "${{ has(tasks.reproduce.outputs.reproduced) ? tasks.reproduce.outputs.reproduced : false }}"
+      test_result: "${{ has(tasks.reproduce.outputs.test_result) ? tasks.reproduce.outputs.test_result : 'not-run' }}"
+      reproduction_summary: "${{ has(tasks.reproduce.outputs.reproduction_summary) ? tasks.reproduce.outputs.reproduction_summary : '' }}"
+      evidence: "${{ has(tasks.reproduce.outputs.evidence) ? tasks.reproduce.outputs.evidence : [] }}"
+      matches_prior: "${{ has(tasks.reproduce.outputs.matches_prior) ? tasks.reproduce.outputs.matches_prior : false }}"
+      attempts_made: "${{ has(tasks.reproduce.outputs.attempts_made) ? tasks.reproduce.outputs.attempts_made : 0 }}"
+      attempts_converged: "${{ has(tasks.reproduce.outputs.attempts_converged) ? tasks.reproduce.outputs.attempts_converged : false }}"
+      bug_hunt_findings: "${{ has(tasks.bug_hunt.outputs.findings) ? tasks.bug_hunt.outputs.findings : [] }}"
+      bug_hunt_remaining_gaps: "${{ has(tasks.bug_hunt.outputs.remaining_gaps) ? tasks.bug_hunt.outputs.remaining_gaps : [] }}"
+      bug_hunt_summary: "${{ has(tasks.bug_hunt.outputs.summary) ? tasks.bug_hunt.outputs.summary : '' }}"
+      bug_hunt_recommended_actions: "${{ has(tasks.bug_hunt.outputs.recommended_actions) ? tasks.bug_hunt.outputs.recommended_actions : [] }}"
+      bug_hunt_completeness: "${{ has(tasks.bug_hunt.outputs.completeness) ? tasks.bug_hunt.outputs.completeness : '' }}"
+      bug_hunt_information_gain: "${{ has(tasks.bug_hunt.outputs.information_gain) ? tasks.bug_hunt.outputs.information_gain : '' }}"
+      bug_hunt_iterations_used: "${{ has(tasks.bug_hunt.outputs.iterations_used) ? tasks.bug_hunt.outputs.iterations_used : 0 }}"
+      bug_hunt_converged: "${{ has(tasks.bug_hunt.outputs.converged) ? tasks.bug_hunt.outputs.converged : false }}"
+      schema:
+        launched:
+          type: boolean
+        enclave_name:
+          type: string
+        assertoor_url:
+          type: string
+        services:
+          type: array
+          items:
+            type: string
+        launch_summary:
+          type: string
+        runtime_fidelity_summary:
+          type: string
+        package_ref_used:
+          type: string
+        pinned_images:
+          type: array
+          items:
+            type: string
+        unpinned_images:
+          type: array
+          items:
+            type: string
+        reproduced:
+          type: boolean
+        test_result:
+          type: string
+        reproduction_summary:
+          type: string
+        evidence:
+          type: array
+          items:
+            type: string
+        matches_prior:
+          type: boolean
+        attempts_made:
+          type: number
+        attempts_converged:
+          type: boolean
+        bug_hunt_findings:
+          type: array
+          items:
+            type: object
+            properties:
+              title:
+                type: string
+              severity:
+                type: string
+              summary:
+                type: string
+              affected_scope:
+                type: string
+              category:
+                type: string
+              confidence:
+                type: number
+              status:
+                type: string
+              evidence:
+                type: array
+                items:
+                  type: string
+              warrants_devnet_debug:
+                type: boolean
+              next_check:
+                type: string
+        bug_hunt_remaining_gaps:
+          type: array
+          items:
+            type: object
+            properties:
+              question:
+                type: string
+              priority:
+                type: string
+              reason:
+                type: string
+        bug_hunt_summary:
+          type: string
+        bug_hunt_recommended_actions:
+          type: array
+          items:
+            type: string
+        bug_hunt_completeness:
+          type: string
+        bug_hunt_information_gain:
+          type: string
+        bug_hunt_iterations_used:
+          type: number
+        bug_hunt_converged:
+          type: boolean
   classify:
-    needs: [reproduce, bug_hunt, regression_window]
-    if: "${{ inputs.work_action != 'recurrence' && inputs.status.status != 'covered-complete' }}"
+    needs: [kurtosis_repro_session, regression_window]
     uses: io.ethpandaops/assertoor-ci-classify@1.0.0
     inputs:
-      human_label: ${{ inputs.human_label }}
+      cluster_label: ${{ inputs.cluster_label }}
       representative: ${{ inputs.representative }}
-      reproduction_launched: "${{ has(tasks.reproduce.outputs.launched) ? tasks.reproduce.outputs.launched : false }}"
-      reproduction_reproduced: "${{ has(tasks.reproduce.outputs.reproduced) ? tasks.reproduce.outputs.reproduced : false }}"
-      reproduction_test_result: "${{ has(tasks.reproduce.outputs.test_result) ? tasks.reproduce.outputs.test_result : 'not-run' }}"
-      reproduction_matches_prior: "${{ has(tasks.reproduce.outputs.matches_prior) ? tasks.reproduce.outputs.matches_prior : false }}"
-      reproduction_summary: "${{ has(tasks.reproduce.outputs.reproduction_summary) ? tasks.reproduce.outputs.reproduction_summary : 'not run' }}"
+      reproduction_launched: "${{ has(tasks.kurtosis_repro_session.outputs.launched) ? tasks.kurtosis_repro_session.outputs.launched : false }}"
+      reproduction_reproduced: "${{ has(tasks.kurtosis_repro_session.outputs.reproduced) ? tasks.kurtosis_repro_session.outputs.reproduced : false }}"
+      reproduction_test_result: "${{ has(tasks.kurtosis_repro_session.outputs.test_result) ? tasks.kurtosis_repro_session.outputs.test_result : 'not-run' }}"
+      reproduction_matches_prior: "${{ has(tasks.kurtosis_repro_session.outputs.matches_prior) ? tasks.kurtosis_repro_session.outputs.matches_prior : false }}"
+      reproduction_summary: "${{ has(tasks.kurtosis_repro_session.outputs.reproduction_summary) ? tasks.kurtosis_repro_session.outputs.reproduction_summary : 'not run' }}"
+      reproduction_fidelity_summary: "${{ has(tasks.kurtosis_repro_session.outputs.runtime_fidelity_summary) ? tasks.kurtosis_repro_session.outputs.runtime_fidelity_summary : '' }}"
       regression_summary: "${{ has(tasks.regression_window.outputs.baseline_summary) ? tasks.regression_window.outputs.baseline_summary : '' }}"
       regression_window: "${{ has(tasks.regression_window.outputs.regression_window) ? tasks.regression_window.outputs.regression_window : {} }}"
-      bug_hunt_findings: "${{ has(tasks.bug_hunt.outputs.findings) ? tasks.bug_hunt.outputs.findings : [] }}"
-      bug_hunt_summary: "${{ has(tasks.bug_hunt.outputs.summary) ? tasks.bug_hunt.outputs.summary : '' }}"
+      bug_hunt_findings: "${{ has(tasks.kurtosis_repro_session.outputs.bug_hunt_findings) ? tasks.kurtosis_repro_session.outputs.bug_hunt_findings : [] }}"
+      bug_hunt_summary: "${{ has(tasks.kurtosis_repro_session.outputs.bug_hunt_summary) ? tasks.kurtosis_repro_session.outputs.bug_hunt_summary : '' }}"
     outputs:
       decision: decision
       confidence: confidence
       reasoning: reasoning
   source_dive:
-    needs: [reproduce, bug_hunt, classify, regression_window]
+    needs: [classify]
     if: "${{ inputs.enable_source_dive == true && has(tasks.classify.outputs.decision) && (tasks.classify.outputs.decision == 'framework-bug' || tasks.classify.outputs.decision == 'framework-dependency' || tasks.classify.outputs.decision == 'single-client' || tasks.classify.outputs.decision == 'multi-client' || tasks.classify.outputs.decision == 'devnet-network' || tasks.classify.outputs.decision == 'config-issue' || tasks.classify.outputs.decision == 'mixed') }}"
     uses: io.ethpandaops/ethereum-component-source-dive@1.0.0
     inputs:
       classification: ${{ tasks.classify.outputs.decision }}
-      enclave_name: ${{ inputs.enclave_name }}
       representative: ${{ inputs.representative }}
       source_repo: ${{ inputs.source_repo }}
-      bug_hunt_findings: "${{ has(tasks.bug_hunt.outputs.findings) ? tasks.bug_hunt.outputs.findings : [] }}"
-      bug_hunt_summary: "${{ has(tasks.bug_hunt.outputs.summary) ? tasks.bug_hunt.outputs.summary : '' }}"
+      bug_hunt_findings: "${{ has(tasks.kurtosis_repro_session.outputs.bug_hunt_findings) ? tasks.kurtosis_repro_session.outputs.bug_hunt_findings : [] }}"
+      bug_hunt_summary: "${{ has(tasks.kurtosis_repro_session.outputs.bug_hunt_summary) ? tasks.kurtosis_repro_session.outputs.bug_hunt_summary : '' }}"
       baseline_context: "${{ has(tasks.regression_window.outputs.baseline_summary) ? tasks.regression_window.outputs.baseline_summary : '' }}"
       regression_window: "${{ has(tasks.regression_window.outputs.regression_window) ? tasks.regression_window.outputs.regression_window : {} }}"
-      reproduction_evidence: "${{ has(tasks.reproduce.outputs.evidence) ? tasks.reproduce.outputs.evidence : [] }}"
-      reproduction_matches_prior: "${{ has(tasks.reproduce.outputs.matches_prior) ? tasks.reproduce.outputs.matches_prior : false }}"
+      reproduction_evidence: "${{ has(tasks.kurtosis_repro_session.outputs.evidence) ? tasks.kurtosis_repro_session.outputs.evidence : [] }}"
+      reproduction_matches_prior: "${{ has(tasks.kurtosis_repro_session.outputs.matches_prior) ? tasks.kurtosis_repro_session.outputs.matches_prior : false }}"
     outputs:
       target_kind: target_kind
       skip_reason: skip_reason
@@ -325,7 +528,6 @@ tasks:
       resolution_method: resolution_method
       commit_exact: commit_exact
       resolution_caveat: resolution_caveat
-      workdir: workdir
       cloned: cloned
       alternate_targets: alternate_targets
       candidates: candidates
@@ -338,31 +540,27 @@ tasks:
       suggested_change_md: suggested_change_md
       top_candidates: top_candidates
       code_refs: code_refs
+      alternate_probe_summary: alternate_probe_summary
+      alternate_probe_target: alternate_probe_target
+      alternate_code_refs: alternate_code_refs
+      alternate_probe_confidence: alternate_probe_confidence
       confidence: confidence
+      source_surface_confidence: source_surface_confidence
+      regression_pin_confidence: regression_pin_confidence
+      fix_target_confidence: fix_target_confidence
       confidence_note: confidence_note
   launcher_audit:
     needs: [classify, source_dive]
-    if: "${{ inputs.enable_source_dive == true && has(tasks.classify.outputs.decision) && tasks.classify.outputs.decision == 'single-client' && ((has(tasks.classify.outputs.confidence) && tasks.classify.outputs.confidence < 85) || !(has(tasks.source_dive.outputs.cloned) && tasks.source_dive.outputs.cloned == true) || !(has(tasks.source_dive.outputs.confidence) && tasks.source_dive.outputs.confidence >= 75)) }}"
+    if: "${{ inputs.enable_source_dive == true && has(tasks.classify.outputs.decision) && tasks.classify.outputs.decision == 'single-client' && (!(has(tasks.source_dive.outputs.cloned) && tasks.source_dive.outputs.cloned == true) || !(has(tasks.source_dive.outputs.source_surface_confidence) && tasks.source_dive.outputs.source_surface_confidence >= 75)) }}"
     uses: io.ethpandaops/ethereum-package-launcher-audit@1.0.0
     inputs:
       client_name: "${{ has(tasks.source_dive.outputs.client_name) ? tasks.source_dive.outputs.client_name : '' }}"
       gh_token: ${{ inputs.?gh_token }}
-      bug_hunt_summary: "${{ has(tasks.bug_hunt.outputs.summary) ? tasks.bug_hunt.outputs.summary : '' }}"
+      bug_hunt_summary: "${{ has(tasks.kurtosis_repro_session.outputs.bug_hunt_summary) ? tasks.kurtosis_repro_session.outputs.bug_hunt_summary : '' }}"
       root_cause_description: "${{ has(tasks.source_dive.outputs.root_cause_description) ? tasks.source_dive.outputs.root_cause_description : '' }}"
-      classify_confidence: ${{ tasks.classify.outputs.confidence }}
     outputs:
       audit_summary: audit_summary
       verdict: verdict
-finally:
-  cleanup_enclave:
-    if: "${{ has(tasks.reproduce.outputs.launched) && tasks.reproduce.outputs.launched == true }}"
-    uses: io.ethpandaops/kurtosis-enclave-cleanup@1.0.0
-    inputs:
-      enclave_name: ${{ inputs.enclave_name }}
-      force: true
-    outputs:
-      removed: removed
-      summary: summary
 outputs:
   raw_finding: |-
     ${{
@@ -370,28 +568,29 @@ outputs:
         "cluster_idx": inputs.cluster_idx,
         "cluster": inputs.cluster,
         "cheap_fingerprint": inputs.cheap_fingerprint,
-        "human_label": inputs.human_label,
+        "cluster_label": inputs.cluster_label,
         "status": inputs.status,
-        "work_action": inputs.work_action,
         "representative": inputs.representative,
-        "enclave_name": inputs.enclave_name,
         "test_inspection": {
           "attempted": has(tasks.inspect_test.outputs.test_summary),
           "summary": has(tasks.inspect_test.outputs.test_summary) ? tasks.inspect_test.outputs.test_summary : "",
           "recent_changes": has(tasks.inspect_test.outputs.recent_test_changes) ? tasks.inspect_test.outputs.recent_test_changes : ""
         },
         "reproduction": {
-          "attempted": has(tasks.reproduce.outputs.launched),
-          "launched": has(tasks.reproduce.outputs.launched) ? tasks.reproduce.outputs.launched : false,
-          "reproduced": has(tasks.reproduce.outputs.reproduced) ? tasks.reproduce.outputs.reproduced : false,
-          "test_result": has(tasks.reproduce.outputs.test_result) ? tasks.reproduce.outputs.test_result : "",
-          "observed_signal": has(tasks.reproduce.outputs.observed_signal) ? tasks.reproduce.outputs.observed_signal : "",
-          "summary": has(tasks.reproduce.outputs.reproduction_summary) ? tasks.reproduce.outputs.reproduction_summary : "",
-          "evidence": has(tasks.reproduce.outputs.evidence) ? tasks.reproduce.outputs.evidence : [],
-          "matches_prior": has(tasks.reproduce.outputs.matches_prior) ? tasks.reproduce.outputs.matches_prior : false,
-          "attempts_made": has(tasks.reproduce.outputs.attempts_made) ? tasks.reproduce.outputs.attempts_made : 0,
-          "attempts_converged": has(tasks.reproduce.outputs.attempts_converged) ? tasks.reproduce.outputs.attempts_converged : false,
-          "attempt_log": has(tasks.reproduce.outputs.attempt_log) ? tasks.reproduce.outputs.attempt_log : ""
+          "attempted": has(tasks.kurtosis_repro_session.outputs.launched),
+          "launched": has(tasks.kurtosis_repro_session.outputs.launched) ? tasks.kurtosis_repro_session.outputs.launched : false,
+          "reproduced": has(tasks.kurtosis_repro_session.outputs.reproduced) ? tasks.kurtosis_repro_session.outputs.reproduced : false,
+          "test_result": has(tasks.kurtosis_repro_session.outputs.test_result) ? tasks.kurtosis_repro_session.outputs.test_result : "",
+          "summary": has(tasks.kurtosis_repro_session.outputs.reproduction_summary) ? tasks.kurtosis_repro_session.outputs.reproduction_summary : "",
+          "launch_summary": has(tasks.kurtosis_repro_session.outputs.launch_summary) ? tasks.kurtosis_repro_session.outputs.launch_summary : "",
+          "runtime_fidelity_summary": has(tasks.kurtosis_repro_session.outputs.runtime_fidelity_summary) ? tasks.kurtosis_repro_session.outputs.runtime_fidelity_summary : "",
+          "package_ref_used": has(tasks.kurtosis_repro_session.outputs.package_ref_used) ? tasks.kurtosis_repro_session.outputs.package_ref_used : "",
+          "pinned_images": has(tasks.kurtosis_repro_session.outputs.pinned_images) ? tasks.kurtosis_repro_session.outputs.pinned_images : [],
+          "unpinned_images": has(tasks.kurtosis_repro_session.outputs.unpinned_images) ? tasks.kurtosis_repro_session.outputs.unpinned_images : [],
+          "evidence": has(tasks.kurtosis_repro_session.outputs.evidence) ? tasks.kurtosis_repro_session.outputs.evidence : [],
+          "matches_prior": has(tasks.kurtosis_repro_session.outputs.matches_prior) ? tasks.kurtosis_repro_session.outputs.matches_prior : false,
+          "attempts_made": has(tasks.kurtosis_repro_session.outputs.attempts_made) ? tasks.kurtosis_repro_session.outputs.attempts_made : 0,
+          "attempts_converged": has(tasks.kurtosis_repro_session.outputs.attempts_converged) ? tasks.kurtosis_repro_session.outputs.attempts_converged : false
         },
         "regression": {
           "attempted": has(tasks.regression_window.outputs.baseline_summary),
@@ -406,13 +605,13 @@ outputs:
           "commit_ranges": has(tasks.regression_window.outputs.commit_ranges) ? tasks.regression_window.outputs.commit_ranges : []
         },
         "bug_hunt": {
-          "attempted": has(tasks.bug_hunt.outputs.findings),
-          "findings": has(tasks.bug_hunt.outputs.findings) ? tasks.bug_hunt.outputs.findings : [],
-          "summary": has(tasks.bug_hunt.outputs.summary) ? tasks.bug_hunt.outputs.summary : "",
-          "recommended_actions": has(tasks.bug_hunt.outputs.recommended_actions) ? tasks.bug_hunt.outputs.recommended_actions : [],
-          "completeness": has(tasks.bug_hunt.outputs.completeness) ? tasks.bug_hunt.outputs.completeness : "",
-          "iterations_used": has(tasks.bug_hunt.outputs.iterations_used) ? tasks.bug_hunt.outputs.iterations_used : 0,
-          "converged": has(tasks.bug_hunt.outputs.converged) ? tasks.bug_hunt.outputs.converged : false
+          "attempted": has(tasks.kurtosis_repro_session.outputs.bug_hunt_findings),
+          "findings": has(tasks.kurtosis_repro_session.outputs.bug_hunt_findings) ? tasks.kurtosis_repro_session.outputs.bug_hunt_findings : [],
+          "summary": has(tasks.kurtosis_repro_session.outputs.bug_hunt_summary) ? tasks.kurtosis_repro_session.outputs.bug_hunt_summary : "",
+          "recommended_actions": has(tasks.kurtosis_repro_session.outputs.bug_hunt_recommended_actions) ? tasks.kurtosis_repro_session.outputs.bug_hunt_recommended_actions : [],
+          "completeness": has(tasks.kurtosis_repro_session.outputs.bug_hunt_completeness) ? tasks.kurtosis_repro_session.outputs.bug_hunt_completeness : "",
+          "iterations_used": has(tasks.kurtosis_repro_session.outputs.bug_hunt_iterations_used) ? tasks.kurtosis_repro_session.outputs.bug_hunt_iterations_used : 0,
+          "converged": has(tasks.kurtosis_repro_session.outputs.bug_hunt_converged) ? tasks.kurtosis_repro_session.outputs.bug_hunt_converged : false
         },
         "classification": {
           "attempted": has(tasks.classify.outputs.decision),
@@ -431,14 +630,20 @@ outputs:
           "resolution_method": has(tasks.source_dive.outputs.resolution_method) ? tasks.source_dive.outputs.resolution_method : "",
           "commit_exact": has(tasks.source_dive.outputs.commit_exact) ? tasks.source_dive.outputs.commit_exact : false,
           "resolution_caveat": has(tasks.source_dive.outputs.resolution_caveat) ? tasks.source_dive.outputs.resolution_caveat : "",
-          "workdir": has(tasks.source_dive.outputs.workdir) ? tasks.source_dive.outputs.workdir : "",
           "cloned": has(tasks.source_dive.outputs.cloned) ? tasks.source_dive.outputs.cloned : false,
           "alternate_targets": has(tasks.source_dive.outputs.alternate_targets) ? tasks.source_dive.outputs.alternate_targets : [],
           "root_cause_description": has(tasks.source_dive.outputs.root_cause_description) ? tasks.source_dive.outputs.root_cause_description : "",
           "suggested_change_md": has(tasks.source_dive.outputs.suggested_change_md) ? tasks.source_dive.outputs.suggested_change_md : "",
           "top_candidates": has(tasks.source_dive.outputs.top_candidates) ? tasks.source_dive.outputs.top_candidates : [],
           "code_refs": has(tasks.source_dive.outputs.code_refs) ? tasks.source_dive.outputs.code_refs : [],
+          "alternate_probe_summary": has(tasks.source_dive.outputs.alternate_probe_summary) ? tasks.source_dive.outputs.alternate_probe_summary : "",
+          "alternate_probe_target": has(tasks.source_dive.outputs.alternate_probe_target) ? tasks.source_dive.outputs.alternate_probe_target : {},
+          "alternate_code_refs": has(tasks.source_dive.outputs.alternate_code_refs) ? tasks.source_dive.outputs.alternate_code_refs : [],
+          "alternate_probe_confidence": has(tasks.source_dive.outputs.alternate_probe_confidence) ? tasks.source_dive.outputs.alternate_probe_confidence : 0,
           "confidence": has(tasks.source_dive.outputs.confidence) ? tasks.source_dive.outputs.confidence : 0,
+          "source_surface_confidence": has(tasks.source_dive.outputs.source_surface_confidence) ? tasks.source_dive.outputs.source_surface_confidence : (has(tasks.source_dive.outputs.confidence) ? tasks.source_dive.outputs.confidence : 0),
+          "regression_pin_confidence": has(tasks.source_dive.outputs.regression_pin_confidence) ? tasks.source_dive.outputs.regression_pin_confidence : 0,
+          "fix_target_confidence": has(tasks.source_dive.outputs.fix_target_confidence) ? tasks.source_dive.outputs.fix_target_confidence : 0,
           "confidence_note": has(tasks.source_dive.outputs.confidence_note) ? tasks.source_dive.outputs.confidence_note : "",
           "search_summary": has(tasks.source_dive.outputs.search_summary) ? tasks.source_dive.outputs.search_summary : "",
           "regression_context": has(tasks.source_dive.outputs.regression_context) ? tasks.source_dive.outputs.regression_context : "",

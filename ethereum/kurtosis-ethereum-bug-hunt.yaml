@@ -249,7 +249,7 @@ tasks:
           - If `previous_findings` is empty AND `prior_summary` is non-empty,
             treat the prior summary as a strong hypothesis. Round 1 should
             attempt to confirm or refute it with concrete evidence from the
-            live enclave, not start broad. Record the validated finding (or
+            running network, not start broad. Record the validated finding (or
             its refutation) explicitly.
           - If `previous_findings` is empty AND `prior_summary` is empty,
             start broad: establish a baseline for service health, consensus

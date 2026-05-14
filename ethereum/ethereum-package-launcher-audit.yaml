@@ -7,7 +7,7 @@ authors: [savid]
 homepage: https://github.com/ethpandaops/wagie-templates
 repository: https://github.com/ethpandaops/wagie-templates
 description: >-
-  Use when a low-confidence Ethereum client diagnosis needs a narrow fallback audit against ethereum-package launcher configuration. Usually called by assertoor-ci-investigate after client-first source analysis.
+  Use when Ethereum client source analysis is weak or missing and a narrow fallback audit against ethereum-package launcher configuration is needed.
 tags: ["ethereum", "kurtosis", "ethereum-package", "launcher", "package-launcher-audit", "ci", "assertoor"]
 defaults:
   retryable: true
@@ -24,15 +24,11 @@ inputs:
   bug_hunt_summary:
     type: string
     default: ""
-    description: Short summary of reproduced live-enclave findings, when available.
+    description: Short summary of local reproduction findings, when available.
   root_cause_description:
     type: string
     default: ""
     description: Source-dive root-cause description to cross-reference against launcher behavior.
-  classify_confidence:
-    type: number
-    default: 0
-    description: Confidence score from the root-cause classifier.
 tasks:
   audit:
     selection:
@@ -40,7 +36,7 @@ tasks:
     run: ethereum-package-launcher-audit
     quality-gate: "${{ has(result.audit_summary) && size(result.audit_summary) > 0 }}"
     instructions: |-
-      Run a narrow caller/tool fallback audit after a low-confidence client investigation. The client path has already had first priority; this audit attempts to either reinforce that diagnosis or surface concrete launcher-side invalid input or configuration. The null hypothesis is "the caller/tool is fine" — produce specific code-cited evidence to deviate from it.
+      Run a narrow caller/tool fallback audit after client-first source analysis could not strongly localize the source surface. The client path has already had first priority; this audit attempts to either reinforce that diagnosis or surface concrete launcher-side invalid input or configuration. The null hypothesis is "the caller/tool is fine" — produce specific code-cited evidence to deviate from it.
 
       Hard rules:
       - `launcher_concrete_mismatch` requires a specific launcher file:line where ethereum-package passes a CLI flag value, port, or configuration that demonstrably contradicts the implicated client's documented expectations or the cited misbehavior. No citation means no implication.
@@ -74,7 +70,6 @@ tasks:
       gh_token: ${{ inputs.?gh_token }}
       bug_hunt_summary: ${{ inputs.bug_hunt_summary }}
       root_cause_description: ${{ inputs.root_cause_description }}
-      classify_confidence: ${{ inputs.classify_confidence }}
     outputs:
       audit_summary: "${{ result.audit_summary }}"
       verdict: "${{ result.verdict }}"

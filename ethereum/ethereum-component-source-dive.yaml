@@ -16,11 +16,7 @@ inputs:
   classification:
     type: string
     required: true
-    description: Root-cause classification from upstream (framework-bug, framework-dependency, single-client, multi-client, devnet-network, config-issue, mixed, …).
-  enclave_name:
-    type: string
-    required: true
-    description: Kurtosis enclave name; used to inspect service images when a client repo needs to be identified.
+    description: Root-cause classification hint (framework-bug, framework-dependency, single-client, multi-client, devnet-network, config-issue, mixed, …).
   representative:
     type: object
     required: true
@@ -103,6 +99,21 @@ inputs:
                 type: string
               source:
                 type: string
+        package_runtime_identity:
+          type: object
+          properties:
+            package_ref:
+              type: string
+            package_started_at:
+              type: string
+            source_repo:
+              type: string
+            source_revision:
+              type: string
+            source:
+              type: string
+            evidence:
+              type: string
         evidence_brief:
           type: object
           properties:
@@ -178,6 +189,10 @@ inputs:
               previous_revision:
                 type: string
               current_revision:
+                type: string
+              previous_version:
+                type: string
+              current_version:
                 type: string
               evidence:
                 type: string
@@ -269,14 +284,14 @@ tasks:
     run: identify-source-dive-target
     quality-gate: "${{ has(result.target_kind) }}"
     instructions: |-
-      Decide which repository to dive into based on the cluster's classification and evidence. Use `evidence_brief` first when present, then original artifact evidence, runtime_components, regression_window, bug_hunt_findings, bug_hunt_summary, faithful reproduction_evidence, prior_ai_summary, and component_hints. Treat reproduction_evidence as corroborating context only when `reproduction_matches_prior=true`; original CI artifacts remain primary.
+      Decide which repository to dive into based on the cluster's classification and evidence. Use `evidence_brief` first when present, then original artifact evidence, runtime_components, package_runtime_identity, regression_window, bug_hunt_findings, bug_hunt_summary, faithful reproduction_evidence, prior_ai_summary, and component_hints. Treat reproduction_evidence as corroborating context only when `reproduction_matches_prior=true`; original CI artifacts remain primary.
 
       Owner-first rule:
       - When artifacts contain a concrete RPC/API/log error emitted by a named client or service, route the first source dive to the emitting component. The caller/generator/orchestrator is fallback evidence unless there is affirmative evidence it generated invalid input.
       - When the configured image is mutable (`latest`, `stable`, `master`, nightly, date-less dev tags), prefer the component whose resolved image digest/build/source revision changed across the previous-success baseline, especially when it also emitted the error.
       - Do not route to a framework, dependency, launcher, or other tool merely because it submitted the request that received a client error. Route there only after the emitting component's source/history is exhausted, or when evidence points to invalid input, wrong configuration, or orchestration behavior produced by that tool.
-      - Classification is an upstream hint, not a hard override. If `classification=framework-dependency` but the original artifact evidence says a client service emitted the distinctive error, pick `target_kind=client` and explain the override in `reason`.
-      - For client targets, resolve source from the original CI runtime identity before relying on a live reproduced enclave. If `representative.runtime_components` has a matching client/service with `source_repo` and `source_revision`, set `direct_repo_url` and `direct_commit` from those fields. Normalize owner/name source repos to `https://github.com/<owner>/<repo>`. If it has `image_ref` but no source revision, set `image_ref` so the resolver can inspect or map the image. A reproduced enclave is helpful but not required for client source-dive.
+      - Classification is a hint, not a hard override. If `classification=framework-dependency` but the original artifact evidence says a client service emitted the distinctive error, pick `target_kind=client` and explain the override in `reason`.
+      - For client targets, resolve source from the original CI runtime identity. If `representative.runtime_components` has a matching client/service with `source_repo` and `source_revision`, set `direct_repo_url` and `direct_commit` from those fields. Normalize owner/name source repos to `https://github.com/<owner>/<repo>`. If it has `image_ref` but no source revision, set `image_ref` so the resolver can inspect or map the image. Do not require a local reproduction enclave for source identity.
 
       Routing table:
 
@@ -285,7 +300,7 @@ tasks:
       | framework-bug | Assertoor scheduler/assertion/orchestration/account or workload setup logic | framework | https://github.com/ethpandaops/assertoor | assertoor |
       | framework-dependency | Evidence names a dependency responsible for workload generation, transaction management, account state, or helper orchestration | framework-dependency | evidence-named repo; use https://github.com/ethpandaops/spamoor only when Spamoor is named | dependency name |
       | framework-dependency | Dependency evidence is generic or points back to Assertoor integration code | framework-dependency | https://github.com/ethpandaops/assertoor | assertoor |
-      | single-client | One EL/CL client is implicated | client | matching Kurtosis service name; resolve image downstream | client name |
+      | single-client | One EL/CL client is implicated | client | matching runtime component/source repo or image ref | client name |
       | multi-client | CL/finality/attestation/fork-choice evidence | spec | https://github.com/ethereum/consensus-specs | spec |
       | multi-client | EL/transactions/EVM/engine API/payload evidence | spec | https://github.com/ethereum/execution-specs | spec |
       | devnet-network | bootnodoor, bootnodes, ENR, discv4/discv5, discovery routing, `No GoodPeers` | devnet-network | https://github.com/ethpandaops/bootnodoor | bootnodoor |
@@ -294,15 +309,14 @@ tasks:
       | config-issue | ethereum-package launcher files or package-generated flags | devnet-network | https://github.com/ethpandaops/ethereum-package | ethereum-package |
       | mixed | concrete framework-dependency evidence | framework-dependency | evidence-named dependency repo | dependency name |
       | mixed | concrete p2p topology/discovery evidence | devnet-network | bootnodoor or ethereum-package per evidence above | bootnodoor or ethereum-package |
-      | mixed | one client is explicitly named as the strongest actionable target | client | matching Kurtosis service name; resolve image downstream | client name |
+      | mixed | one client is explicitly named as the strongest actionable target | client | matching runtime component/source repo or image ref | client name |
       | test-design, infra-flake, unknown | no actionable source-dive target | skip | empty | empty |
 
-      For `single-client` and mixed client routing, set `service_name` to the EL or CL Kurtosis service most explicitly named by the evidence when known. If both are implicated, choose the one with higher-severity findings. It is valid to leave `service_name` empty when `direct_repo_url` or `image_ref` already resolves the target from original CI runtime identity. Return `reason` whenever target_kind is `skip`.
+      For every non-skip target, set `component` to the shortest useful owner name for the selected source surface, such as a client name, assertoor, spamoor, bootnodoor, ethereum-package, or spec. For `single-client` and mixed client routing, set `service_name` to the EL or CL Kurtosis service most explicitly named by the evidence when known. If both are implicated, choose the one with higher-severity findings. It is valid to leave `service_name` empty when `direct_repo_url` or `image_ref` already resolves the target from original CI runtime identity. Return `reason` whenever target_kind is `skip`.
 
-      Also return `alternate_targets`: up to two secondary source targets that should be investigated next if the primary target is exhausted. Each entry should include `{target_kind, component, repo_url, service_name, reason}`. Keep this generic; do not hardcode a past incident.
+      Also return `alternate_targets`: up to two secondary source targets that should be investigated next if the primary target is exhausted. Each entry should include `{target_kind, component, repo_url, service_name, commit_sha, image_ref, reason}` when those fields are known. Keep this generic; do not hardcode a past incident.
     inputs:
       classification: ${{ inputs.classification }}
-      enclave_name: ${{ inputs.enclave_name }}
       representative: ${{ inputs.representative }}
       source_repo: ${{ inputs.source_repo }}
       bug_hunt_findings: ${{ inputs.bug_hunt_findings }}
@@ -318,6 +332,7 @@ tasks:
       image_ref: "${{ has(result.image_ref) ? result.image_ref : '' }}"
       direct_repo_url: "${{ has(result.direct_repo_url) ? result.direct_repo_url : '' }}"
       direct_commit: "${{ has(result.direct_commit) ? result.direct_commit : '' }}"
+      component: "${{ has(result.component) ? result.component : '' }}"
       identified_client: "${{ has(result.identified_client) ? result.identified_client : '' }}"
       alternate_targets: "${{ has(result.alternate_targets) ? result.alternate_targets : [] }}"
       schema:
@@ -326,19 +341,22 @@ tasks:
           enum: [framework, framework-dependency, client, spec, devnet-network, config, skip]
         reason:
           type: string
-          description: Required when target_kind is `skip`; also use when routing overrides the upstream classification, e.g. emitting-component evidence points to a client.
+          description: Required when target_kind is `skip`; also use when routing overrides the supplied classification hint, e.g. emitting-component evidence points to a client.
         service_name:
           type: string
-          description: Kurtosis service to resolve when target_kind=client
+          description: Runtime service name for context when target_kind=client
         image_ref:
           type: string
-          description: Image reference when known directly (rare; usually resolved downstream)
+          description: Image reference when known directly
         direct_repo_url:
           type: string
           description: Repo URL when target_kind is framework, framework-dependency, devnet-network, config, or spec (bypasses image resolution)
         direct_commit:
           type: string
           description: Commit SHA when target_kind is a direct repository target and a specific revision is wanted
+        component:
+          type: string
+          description: Short name of the selected source surface or owner.
         identified_client:
           type: string
           description: Short name of the implicated component; for target_kind=client this is the client name
@@ -355,16 +373,18 @@ tasks:
                 type: string
               service_name:
                 type: string
+              commit_sha:
+                type: string
+              image_ref:
+                type: string
               reason:
                 type: string
-  resolve_image:
+  resolve_client_image:
     needs: [identify_target]
-    if: "${{ tasks.identify_target.outputs.target_kind == 'client' && !(has(tasks.identify_target.outputs.direct_repo_url) && tasks.identify_target.outputs.direct_repo_url != '') && ((has(tasks.identify_target.outputs.image_ref) && tasks.identify_target.outputs.image_ref != '') || (has(tasks.identify_target.outputs.service_name) && tasks.identify_target.outputs.service_name != '')) }}"
+    if: "${{ tasks.identify_target.outputs.target_kind == 'client' && !(has(tasks.identify_target.outputs.direct_repo_url) && tasks.identify_target.outputs.direct_repo_url != '') && has(tasks.identify_target.outputs.image_ref) && tasks.identify_target.outputs.image_ref != '' }}"
     uses: io.ethpandaops/ethereum-client-image-resolve@1.0.0
     inputs:
       image_ref: ${{ tasks.identify_target.outputs.image_ref }}
-      enclave_name: ${{ inputs.enclave_name }}
-      service_name: ${{ tasks.identify_target.outputs.service_name }}
     outputs:
       repo_url: repo_url
       commit_sha: commit_sha
@@ -374,7 +394,7 @@ tasks:
       resolution_caveat: resolution_caveat
       summary: summary
   clone:
-    needs: [identify_target, resolve_image]
+    needs: [identify_target, resolve_client_image]
     if: "${{ tasks.identify_target.outputs.target_kind != 'skip' }}"
     selection:
       capabilities: [tool-use]
@@ -384,12 +404,12 @@ tasks:
       Clone the resolved repository into the task's working directory and output the absolute path to the clone root.
 
       Inputs:
-      - `repo_url` — when target_kind=framework, framework-dependency, devnet-network, config, or spec, comes from `direct_repo_url`; when client, prefer the target picker repo hint and fall back to the resolve_image task.
-      - `commit_sha` — prefer the target picker commit hint, then image labels. May be empty (use HEAD of default branch in that case), but never discard a non-empty commit hint just because a mutable image tag lacks an OCI revision label.
-      - `client_name` — short identifier surfaced in the output for downstream rendering; does not influence the workdir path.
+      - `repo_url` — the resolved repository URL.
+      - `commit_sha` — the resolved source revision. May be empty (use HEAD of default branch in that case), but never discard a non-empty commit hint just because a mutable image tag lacks an OCI revision label.
+      - `client_name` — short identifier surfaced in the output for report rendering; does not influence the workdir path.
 
       Procedure:
-      1. If `repo_url` is empty, set `cloned=false` and return `workdir=""` — nothing to clone (resolution failed upstream).
+      1. If `repo_url` is empty, set `cloned=false` and return `workdir=""` — nothing to clone because no source repository was resolved.
       2. Clone into the current task working directory:
          - When `commit_sha` is non-empty, use an exact bounded fetch first: `git init .`, `git remote add origin <repo_url>`, `git fetch --depth 1 origin <commit_sha>`, `git checkout --detach FETCH_HEAD`.
          - If exact fetch by SHA is rejected, fall back to `git clone --filter=blob:none --no-checkout <repo_url> .`, then fetch/check out the requested SHA with the smallest practical depth increase. Do not perform an unbounded full clone unless every bounded option failed and the repository is small enough to finish quickly.
@@ -401,14 +421,42 @@ tasks:
       Do not delete the working directory at the end of this task.
     inputs:
       target_kind: ${{ tasks.identify_target.outputs.target_kind }}
-      repo_url: "${{ tasks.identify_target.outputs.target_kind == 'client' ? (has(tasks.identify_target.outputs.direct_repo_url) && tasks.identify_target.outputs.direct_repo_url != '' ? tasks.identify_target.outputs.direct_repo_url : (has(tasks.resolve_image.outputs.repo_url) ? tasks.resolve_image.outputs.repo_url : '')) : tasks.identify_target.outputs.direct_repo_url }}"
-      commit_sha: "${{ tasks.identify_target.outputs.target_kind == 'client' ? (has(tasks.identify_target.outputs.direct_commit) && tasks.identify_target.outputs.direct_commit != '' ? tasks.identify_target.outputs.direct_commit : (has(tasks.resolve_image.outputs.commit_sha) ? tasks.resolve_image.outputs.commit_sha : '')) : tasks.identify_target.outputs.direct_commit }}"
-      client_name: "${{ tasks.identify_target.outputs.target_kind == 'client' ? (has(tasks.resolve_image.outputs.client_name) && tasks.resolve_image.outputs.client_name != '' ? tasks.resolve_image.outputs.client_name : (has(tasks.identify_target.outputs.identified_client) ? tasks.identify_target.outputs.identified_client : 'unknown')) : (tasks.identify_target.outputs.target_kind == 'spec' ? 'spec' : (has(tasks.identify_target.outputs.identified_client) && tasks.identify_target.outputs.identified_client != '' ? tasks.identify_target.outputs.identified_client : tasks.identify_target.outputs.target_kind)) }}"
+      repo_url: "${{ tasks.identify_target.outputs.direct_repo_url != '' ? tasks.identify_target.outputs.direct_repo_url : (has(tasks.resolve_client_image.outputs.repo_url) ? tasks.resolve_client_image.outputs.repo_url : '') }}"
+      commit_sha: "${{ tasks.identify_target.outputs.direct_commit != '' ? tasks.identify_target.outputs.direct_commit : (has(tasks.resolve_client_image.outputs.commit_sha) ? tasks.resolve_client_image.outputs.commit_sha : '') }}"
+      component: "${{ tasks.identify_target.outputs.component != '' ? tasks.identify_target.outputs.component : (tasks.identify_target.outputs.identified_client != '' ? tasks.identify_target.outputs.identified_client : (has(tasks.resolve_client_image.outputs.client_name) ? tasks.resolve_client_image.outputs.client_name : '')) }}"
+      client_name: "${{ tasks.identify_target.outputs.identified_client != '' ? tasks.identify_target.outputs.identified_client : (has(tasks.resolve_client_image.outputs.client_name) ? tasks.resolve_client_image.outputs.client_name : tasks.identify_target.outputs.component) }}"
+      resolution_method: "${{ tasks.identify_target.outputs.direct_repo_url != '' ? (tasks.identify_target.outputs.direct_commit != '' ? 'direct-repo-commit' : 'direct-repo-head-fallback') : (has(tasks.resolve_client_image.outputs.resolution_method) ? tasks.resolve_client_image.outputs.resolution_method : '') }}"
+      commit_exact: "${{ tasks.identify_target.outputs.direct_repo_url != '' && tasks.identify_target.outputs.direct_commit != '' ? true : (has(tasks.resolve_client_image.outputs.commit_exact) ? tasks.resolve_client_image.outputs.commit_exact : false) }}"
+      resolution_caveat: "${{ tasks.identify_target.outputs.direct_repo_url != '' && tasks.identify_target.outputs.direct_commit == '' ? 'source repository was selected without a proven runtime commit; investigation used repository HEAD' : (has(tasks.resolve_client_image.outputs.resolution_caveat) ? tasks.resolve_client_image.outputs.resolution_caveat : '') }}"
     outputs:
+      target_kind: ${{ inputs.target_kind }}
+      repo_url: ${{ inputs.repo_url }}
+      requested_commit_sha: ${{ inputs.commit_sha }}
+      component: ${{ inputs.component }}
+      client_name: ${{ inputs.client_name }}
+      resolution_method: ${{ inputs.resolution_method }}
+      commit_exact: ${{ inputs.commit_exact }}
+      resolution_caveat: ${{ inputs.resolution_caveat }}
       cloned: ${{ result.cloned }}
       workdir: "${{ has(result.workdir) ? result.workdir : '' }}"
       effective_commit: "${{ has(result.effective_commit) ? result.effective_commit : '' }}"
       schema:
+        target_kind:
+          type: string
+        repo_url:
+          type: string
+        requested_commit_sha:
+          type: string
+        component:
+          type: string
+        client_name:
+          type: string
+        resolution_method:
+          type: string
+        commit_exact:
+          type: boolean
+        resolution_caveat:
+          type: string
         cloned:
           type: boolean
         workdir:
@@ -476,14 +524,14 @@ tasks:
          - `## Literal/source search`
          - `## History/change-window`
          - `## Interpretation`
-         In interpretation, say whether the evidence suggests a recent regression, longstanding behavior newly exposed by the workload, or insufficient history.
-      6. Compute `literal_search_signal` (0-100): high when exact artifact strings or strongly matching validation code are found; medium for subsystem-only matches; low when no relevant matches are found.
+         In interpretation, say whether the evidence suggests a recent regression, longstanding behavior newly exposed by the workload, or insufficient history. Keep this separate from owner/source-surface attribution: code that was present in a previous passing build can still be the active failure mechanism when the workload, runtime state, topology, or an indirect caller/feed changed.
+      6. Compute `literal_search_signal` (0-100): high when exact artifact strings or strongly matching validation code are found; medium for subsystem-only matches; low when no relevant matches are found. This is source-surface evidence, not proof of a recent regression.
 
       Bash only; do not edit files. Keep `regression_context` under ~80 lines. Failures, missing history, or command timeouts should degrade the summary rather than failing the task.
     inputs:
       workdir: ${{ tasks.clone.outputs.workdir }}
-      target_kind: ${{ tasks.identify_target.outputs.target_kind }}
-      component: "${{ tasks.identify_target.outputs.target_kind == 'client' ? (has(tasks.resolve_image.outputs.client_name) && tasks.resolve_image.outputs.client_name != '' ? tasks.resolve_image.outputs.client_name : tasks.identify_target.outputs.identified_client) : tasks.identify_target.outputs.identified_client }}"
+      target_kind: ${{ tasks.clone.outputs.target_kind }}
+      component: ${{ tasks.clone.outputs.component }}
       evidence_excerpts: ${{ tasks.prepare_evidence.outputs.evidence_excerpts }}
       prior_ai_summary: "${{ has(inputs.representative.prior_ai_summary) ? inputs.representative.prior_ai_summary : '' }}"
       original_artifact_evidence: "${{ has(inputs.representative.original_artifact_evidence) ? inputs.representative.original_artifact_evidence : [] }}"
@@ -509,7 +557,7 @@ tasks:
     run: source-dive-recent-commits
     quality-gate: "${{ has(result.commits_context) }}"
     instructions: |-
-      Pull recent git history for each candidate path. The investigator panel and judge need this to answer "is this a regression or longstanding code?" — a function changed 3 days ago is different evidence than one untouched for 2 years. This supplements the broader literal/history scan; do not ignore its findings when candidate paths differ.
+      Pull recent git history for each candidate path. The investigator panel and judge need this to answer "is this a regression or longstanding code?" — a function changed 3 days ago is different regression-pinning evidence than one untouched for 2 years. This supplements the broader literal/history scan; do not ignore its findings when candidate paths differ.
 
       Procedure:
       1. `cd` into `workdir`.
@@ -532,7 +580,7 @@ tasks:
            - ...
          ```
          Keep it under ~40 lines total. Skip per-candidate sections when a path has no commits in the last year (note it as "untouched > 1y").
-      5. Compute `recent_change_signal` (0-100): high when MULTIPLE candidates were touched within the last 30 days (strong regression hint); moderate when one candidate was recently touched; low when all candidates are untouched > 1 year.
+      5. Compute `recent_change_signal` (0-100): high when MULTIPLE candidates were touched within the last 30 days (strong regression-pinning hint); moderate when one candidate was recently touched; low when all candidates are untouched > 1 year. This must not be treated as mechanism confidence by itself.
       6. Optional: when one or more candidates are recently-touched, surface the top 1-2 commit subjects verbatim in `recent_change_signal_notes` (the investigator panel and judge will weigh these).
 
       Bash only; do not edit files. Failures (e.g. shallow clone missing history) should produce a degraded `commits_context` noting the limitation rather than failing the task.
@@ -579,15 +627,16 @@ tasks:
         Candidate recent commits:
         ${{ has(tasks.recent_commits.outputs.commits_context) ? tasks.recent_commits.outputs.commits_context : "" }}
 
-        Review rule: prefer the emitting component's source/history explanation when a concrete error originates there. Only shift blame to callers/tools when the reviewed code path cannot explain the evidence or caller-side invalid input/configuration is demonstrated.
+        Review rule: prefer the emitting component's source/history explanation when a concrete error originates there. Only shift blame to callers/tools when the reviewed code path cannot explain the evidence or caller-side invalid input/configuration is demonstrated. Score source-surface confidence separately from regression-pinning confidence: an unchanged file can still be the correct emitted-error or mechanism surface, while the exact why-now edit remains unpinned.
     outputs:
       root_cause_description: root_cause_description
       suggested_change_md: suggested_change_md
       top_candidates: top_candidates
       confidence: confidence
+      source_surface_confidence: source_surface_confidence
+      regression_pin_confidence: regression_pin_confidence
+      fix_target_confidence: fix_target_confidence
       confidence_note: confidence_note
-      agreement_score: agreement_score
-      reviews: reviews
   build_code_refs:
     needs: [clone, review_candidates]
     if: "${{ has(tasks.review_candidates.outputs.top_candidates) && size(tasks.review_candidates.outputs.top_candidates) > 0 }}"
@@ -611,11 +660,11 @@ tasks:
          - With one line: `<repo_web>/blob/<commit_or_HEAD>/<path>#L<start_line>`
          - Without lines: `<repo_web>/blob/<commit_or_HEAD>/<path>`
       4. Return `top_candidates` enriched with `repo_url`, `commit_sha`, `start_line`, `end_line`, `permalink`, and `stable`.
-      5. Return `code_refs` as a compact list for downstream issue rendering: `label`, `repo_url`, `commit_sha`, `path`, `start_line`, `end_line`, `permalink`, `stable`, and `reason`. Use the candidate's `relevance_assessment` as the reason, trimmed to one concise sentence when possible.
+      5. Return `code_refs` as a compact list for issue/report rendering: `label`, `repo_url`, `commit_sha`, `path`, `start_line`, `end_line`, `permalink`, `stable`, and `reason`. Use the candidate's `relevance_assessment` as the reason, trimmed to one concise sentence when possible.
 
       If `repo_url` is not a GitHub URL, still return candidates but leave `permalink` empty and set `stable=false`.
     inputs:
-      repo_url: "${{ tasks.identify_target.outputs.target_kind == 'client' ? (has(tasks.identify_target.outputs.direct_repo_url) && tasks.identify_target.outputs.direct_repo_url != '' ? tasks.identify_target.outputs.direct_repo_url : (has(tasks.resolve_image.outputs.repo_url) ? tasks.resolve_image.outputs.repo_url : '')) : (has(tasks.identify_target.outputs.direct_repo_url) ? tasks.identify_target.outputs.direct_repo_url : '') }}"
+      repo_url: ${{ tasks.clone.outputs.repo_url }}
       commit_sha: "${{ has(tasks.clone.outputs.effective_commit) ? tasks.clone.outputs.effective_commit : '' }}"
       top_candidates: ${{ tasks.review_candidates.outputs.top_candidates }}
     outputs:
@@ -666,17 +715,103 @@ tasks:
                 type: boolean
               reason:
                 type: string
+  alternate_probe:
+    needs: [prepare_evidence, clone, locate_evidence, regression_history, recent_commits, review_candidates]
+    if: "${{ has(tasks.identify_target.outputs.alternate_targets) && size(tasks.identify_target.outputs.alternate_targets) > 0 && (!(has(tasks.clone.outputs.cloned) && tasks.clone.outputs.cloned == true) || !(has(tasks.review_candidates.outputs.source_surface_confidence) && tasks.review_candidates.outputs.source_surface_confidence >= 65)) }}"
+    selection:
+      capabilities: [tool-use]
+    run: source-dive-alternate-probe
+    timeout: 30m
+    quality-gate: "${{ has(result.alternate_probe_summary) && has(result.alternate_probe_confidence) }}"
+    instructions: |-
+      Run one bounded second-pass source probe when the primary source dive is weak and alternate targets exist. This is not a full investigation loop; it is a sanity check to see whether a secondary target has stronger literal/history evidence than the primary.
+
+      Procedure:
+      1. Pick exactly one alternate target. Prefer the first target with a non-empty `repo_url`; if multiple have repo_url, choose the one whose `reason`, `component`, or `target_kind` best matches original CI evidence. If no alternate has repo_url, return a summary saying the alternate could not be probed without a resolvable repo.
+      2. Clone the alternate repo into a fresh subdirectory under the task workspace. Use a bounded clone:
+         - If `commit_sha` is present, try exact shallow fetch/checkout of that commit.
+         - Otherwise use `git clone --depth 1 --filter=blob:none <repo_url>`.
+         Do not run unbounded fetches.
+      3. Search only high-signal original evidence. Use `evidence_excerpts` for exact RPC/API/log strings, reject/drop reasons, method names, distinctive constants, and component names. Cap search output aggressively.
+      4. Run bounded history probes: recent log (`git log --oneline -20`), `git log -S`/`-G` for 2-4 exact terms, and a narrow range diff only when `regression_window.commit_ranges` gives a range for this alternate repo/component.
+      5. Return:
+         - `alternate_probe_summary`: compact markdown with target, why it was probed, literal/source hits, history signal, and whether it strengthens, weakens, or merely preserves the primary target.
+         - `alternate_probe_target`: the selected alternate target object or a compact object with target_kind/component/repo_url/service_name/commit_sha/image_ref/reason.
+         - `alternate_code_refs`: up to three stable GitHub links when exact files/lines are found.
+         - `alternate_probe_confidence` (0-100): confidence that the alternate target deserves follow-up over or alongside the primary target.
+
+      Keep the probe under roughly 80 lines of output. Do not edit files.
+    inputs:
+      alternate_targets: ${{ tasks.identify_target.outputs.alternate_targets }}
+      evidence_excerpts: ${{ tasks.prepare_evidence.outputs.evidence_excerpts }}
+      primary_target_kind: ${{ tasks.clone.outputs.target_kind }}
+      primary_component: ${{ tasks.clone.outputs.component }}
+      primary_cloned: "${{ has(tasks.clone.outputs.cloned) ? tasks.clone.outputs.cloned : false }}"
+      primary_confidence: "${{ has(tasks.review_candidates.outputs.source_surface_confidence) ? tasks.review_candidates.outputs.source_surface_confidence : 0 }}"
+      primary_search_summary: "${{ has(tasks.locate_evidence.outputs.search_summary) ? tasks.locate_evidence.outputs.search_summary : '' }}"
+      primary_regression_context: "${{ has(tasks.regression_history.outputs.regression_context) ? tasks.regression_history.outputs.regression_context : '' }}"
+      baseline_context: "${{ inputs.baseline_context }}"
+      regression_window: "${{ has(inputs.regression_window) ? inputs.regression_window : {} }}"
+    outputs:
+      alternate_probe_summary: "${{ result.alternate_probe_summary }}"
+      alternate_probe_target: "${{ has(result.alternate_probe_target) ? result.alternate_probe_target : {} }}"
+      alternate_code_refs: "${{ has(result.alternate_code_refs) ? result.alternate_code_refs : [] }}"
+      alternate_probe_confidence: "${{ has(result.alternate_probe_confidence) ? result.alternate_probe_confidence : 0 }}"
+      schema:
+        alternate_probe_summary:
+          type: string
+        alternate_probe_target:
+          type: object
+          properties:
+            target_kind:
+              type: string
+            component:
+              type: string
+            repo_url:
+              type: string
+            service_name:
+              type: string
+            commit_sha:
+              type: string
+            image_ref:
+              type: string
+            reason:
+              type: string
+        alternate_code_refs:
+          type: array
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+              repo_url:
+                type: string
+              commit_sha:
+                type: string
+              path:
+                type: string
+              start_line:
+                type: number
+              end_line:
+                type: number
+              permalink:
+                type: string
+              stable:
+                type: boolean
+              reason:
+                type: string
+        alternate_probe_confidence:
+          type: number
 outputs:
   target_kind: ${{ tasks.identify_target.outputs.target_kind }}
   skip_reason: "${{ has(tasks.identify_target.outputs.reason) ? tasks.identify_target.outputs.reason : '' }}"
-  repo_url: "${{ tasks.identify_target.outputs.target_kind == 'client' ? (has(tasks.identify_target.outputs.direct_repo_url) && tasks.identify_target.outputs.direct_repo_url != '' ? tasks.identify_target.outputs.direct_repo_url : (has(tasks.resolve_image.outputs.repo_url) ? tasks.resolve_image.outputs.repo_url : '')) : (has(tasks.identify_target.outputs.direct_repo_url) ? tasks.identify_target.outputs.direct_repo_url : '') }}"
-  commit_sha: "${{ has(tasks.clone.outputs.effective_commit) ? tasks.clone.outputs.effective_commit : '' }}"
-  component: "${{ tasks.identify_target.outputs.target_kind == 'client' ? (has(tasks.resolve_image.outputs.client_name) ? tasks.resolve_image.outputs.client_name : (has(tasks.identify_target.outputs.identified_client) ? tasks.identify_target.outputs.identified_client : '')) : (tasks.identify_target.outputs.target_kind == 'spec' ? 'spec' : (has(tasks.identify_target.outputs.identified_client) && tasks.identify_target.outputs.identified_client != '' ? tasks.identify_target.outputs.identified_client : tasks.identify_target.outputs.target_kind)) }}"
-  client_name: "${{ tasks.identify_target.outputs.target_kind == 'client' ? (has(tasks.resolve_image.outputs.client_name) ? tasks.resolve_image.outputs.client_name : (has(tasks.identify_target.outputs.identified_client) ? tasks.identify_target.outputs.identified_client : '')) : (tasks.identify_target.outputs.target_kind == 'spec' ? 'spec' : (has(tasks.identify_target.outputs.identified_client) && tasks.identify_target.outputs.identified_client != '' ? tasks.identify_target.outputs.identified_client : tasks.identify_target.outputs.target_kind)) }}"
-  resolution_method: "${{ has(tasks.identify_target.outputs.direct_repo_url) && tasks.identify_target.outputs.direct_repo_url != '' ? (has(tasks.identify_target.outputs.direct_commit) && tasks.identify_target.outputs.direct_commit != '' ? (tasks.identify_target.outputs.target_kind == 'client' ? 'runtime-source-revision' : 'direct-source-revision') : 'direct-repo-head-fallback') : (has(tasks.resolve_image.outputs.resolution_method) ? tasks.resolve_image.outputs.resolution_method : '') }}"
-  commit_exact: "${{ tasks.identify_target.outputs.target_kind == 'client' ? (has(tasks.identify_target.outputs.direct_commit) && tasks.identify_target.outputs.direct_commit != '' ? true : (has(tasks.resolve_image.outputs.commit_exact) ? tasks.resolve_image.outputs.commit_exact : false)) : (has(tasks.identify_target.outputs.direct_commit) && tasks.identify_target.outputs.direct_commit != '') }}"
-  resolution_caveat: "${{ has(tasks.identify_target.outputs.direct_repo_url) && tasks.identify_target.outputs.direct_repo_url != '' && !(has(tasks.identify_target.outputs.direct_commit) && tasks.identify_target.outputs.direct_commit != '') ? 'repository known, but tested image/source revision is unresolved; cloned repository HEAD is not proven to be the tested commit' : (tasks.identify_target.outputs.target_kind == 'client' ? (has(tasks.resolve_image.outputs.resolution_caveat) ? tasks.resolve_image.outputs.resolution_caveat : '') : '') }}"
-  workdir: "${{ has(tasks.clone.outputs.workdir) ? tasks.clone.outputs.workdir : '' }}"
+  repo_url: "${{ has(tasks.clone.outputs.repo_url) ? tasks.clone.outputs.repo_url : '' }}"
+  commit_sha: "${{ has(tasks.clone.outputs.effective_commit) && tasks.clone.outputs.effective_commit != '' ? tasks.clone.outputs.effective_commit : (has(tasks.clone.outputs.requested_commit_sha) ? tasks.clone.outputs.requested_commit_sha : '') }}"
+  component: "${{ has(tasks.clone.outputs.component) ? tasks.clone.outputs.component : (has(tasks.identify_target.outputs.component) ? tasks.identify_target.outputs.component : '') }}"
+  client_name: "${{ has(tasks.clone.outputs.client_name) ? tasks.clone.outputs.client_name : (has(tasks.identify_target.outputs.identified_client) ? tasks.identify_target.outputs.identified_client : '') }}"
+  resolution_method: "${{ has(tasks.clone.outputs.resolution_method) ? tasks.clone.outputs.resolution_method : '' }}"
+  commit_exact: "${{ has(tasks.clone.outputs.commit_exact) ? tasks.clone.outputs.commit_exact : false }}"
+  resolution_caveat: "${{ has(tasks.clone.outputs.resolution_caveat) ? tasks.clone.outputs.resolution_caveat : '' }}"
   cloned: "${{ has(tasks.clone.outputs.cloned) ? tasks.clone.outputs.cloned : false }}"
   alternate_targets: "${{ has(tasks.identify_target.outputs.alternate_targets) ? tasks.identify_target.outputs.alternate_targets : [] }}"
   candidates: "${{ has(tasks.locate_evidence.outputs.candidates) ? tasks.locate_evidence.outputs.candidates : [] }}"
@@ -689,7 +824,12 @@ outputs:
   suggested_change_md: "${{ has(tasks.review_candidates.outputs.suggested_change_md) ? tasks.review_candidates.outputs.suggested_change_md : '' }}"
   top_candidates: "${{ has(tasks.build_code_refs.outputs.top_candidates) ? tasks.build_code_refs.outputs.top_candidates : (has(tasks.review_candidates.outputs.top_candidates) ? tasks.review_candidates.outputs.top_candidates : []) }}"
   code_refs: "${{ has(tasks.build_code_refs.outputs.code_refs) ? tasks.build_code_refs.outputs.code_refs : [] }}"
-  confidence: "${{ has(tasks.review_candidates.outputs.confidence) ? tasks.review_candidates.outputs.confidence : 0 }}"
+  alternate_probe_summary: "${{ has(tasks.alternate_probe.outputs.alternate_probe_summary) ? tasks.alternate_probe.outputs.alternate_probe_summary : '' }}"
+  alternate_probe_target: "${{ has(tasks.alternate_probe.outputs.alternate_probe_target) ? tasks.alternate_probe.outputs.alternate_probe_target : {} }}"
+  alternate_code_refs: "${{ has(tasks.alternate_probe.outputs.alternate_code_refs) ? tasks.alternate_probe.outputs.alternate_code_refs : [] }}"
+  alternate_probe_confidence: "${{ has(tasks.alternate_probe.outputs.alternate_probe_confidence) ? tasks.alternate_probe.outputs.alternate_probe_confidence : 0 }}"
+  confidence: "${{ has(tasks.review_candidates.outputs.source_surface_confidence) ? tasks.review_candidates.outputs.source_surface_confidence : (has(tasks.review_candidates.outputs.confidence) ? tasks.review_candidates.outputs.confidence : 0) }}"
+  source_surface_confidence: "${{ has(tasks.review_candidates.outputs.source_surface_confidence) ? tasks.review_candidates.outputs.source_surface_confidence : (has(tasks.review_candidates.outputs.confidence) ? tasks.review_candidates.outputs.confidence : 0) }}"
+  regression_pin_confidence: "${{ has(tasks.review_candidates.outputs.regression_pin_confidence) ? tasks.review_candidates.outputs.regression_pin_confidence : 0 }}"
+  fix_target_confidence: "${{ has(tasks.review_candidates.outputs.fix_target_confidence) ? tasks.review_candidates.outputs.fix_target_confidence : 0 }}"
   confidence_note: "${{ has(tasks.review_candidates.outputs.confidence_note) ? tasks.review_candidates.outputs.confidence_note : '' }}"
-  agreement_score: "${{ has(tasks.review_candidates.outputs.agreement_score) ? tasks.review_candidates.outputs.agreement_score : 0 }}"
-  reviews: "${{ has(tasks.review_candidates.outputs.reviews) ? tasks.review_candidates.outputs.reviews : [] }}"

@@ -7,7 +7,7 @@ authors: [savid]
 homepage: https://github.com/ethpandaops/wagie-templates
 repository: https://github.com/ethpandaops/wagie-templates
 description: >-
-  Use when raw per-job artifacts from an assertoor-test GitHub Actions run need to be normalized into the generic NormalizedFailure shape consumed by CI triage primitives. Usually called by assertoor-ci-investigate; enriches each failure with failed leaves, client pairs, runtime image identity, and original dump evidence.
+  Use when raw per-job artifacts from an assertoor-test GitHub Actions run need to be normalized into the generic NormalizedFailure shape consumed by CI triage primitives. Enriches each failure with failed leaves, client pairs, runtime image identity, and original dump evidence.
 tags: ["ci", "assertoor", "ethereum", "ethpandaops", "adapter"]
 defaults:
   retryable: true
@@ -86,7 +86,7 @@ tasks:
          - Parse `client_pair` from titles such as `from 1-reth-prysm`, `via 1-reth-teku`, `on 7-besu-lighthouse`, or similar `<number>-<el>-<cl>` substrings. Leave empty when absent.
          The top-level `test_name` is the assertoor test id (e.g. `eoa-transactions-test`) — derive it from `test_status`'s failed entry (it has the same colon-table format; first failed row's task slug is the test name). Set `failed_step` to the deepest/actionable failed leaf task_name when available; otherwise use `root_failed_step`. When `category == infra-startup`, set `test_name = "kurtosis-startup"`, `root_failed_step = "testnet-launch"`, and `failed_step = "testnet-launch"`.
 
-      5. Read `ai_summary` from summary.json into `prior_ai_summary`. If absent, also try `<artifacts_dir>/claude-code-output-*-<shard_id>/claude_code_summary.txt`. If both are empty/absent, set `prior_ai_summary = ""`. Set `prior_ai_confidence = 0` always — the pipeline does not emit a confidence today.
+      5. Read `ai_summary` from summary.json into `prior_ai_summary`. If absent, also try `<artifacts_dir>/claude-code-output-*-<shard_id>/claude_code_summary.txt`. If both are empty/absent, set `prior_ai_summary = ""`.
 
       6. Parse `kurtosis-params.yaml` from the original dump when present. Populate:
          - `client_pairs`: one object per participant with `{pair_id, el_type, cl_type, vc_type, el_image, cl_image, vc_image, params}`. Use ids from the participant index or client names; examples: `1-reth-prysm`, `7-besu-lighthouse`.
@@ -94,30 +94,38 @@ tasks:
          - `affected_client_pairs`: unique pair_ids found in failed leaf titles, prior_ai_summary, and original artifact evidence.
          - `passing_client_pairs`: pair_ids with explicit success rows in the failed task tree, when available. Do not infer passing from absence of failure.
 
-      7. Digest the original enclave dump when present. Recursively scan service `spec.json` and `output.log` files under the `enclave-dump-*` artifact.
+      7. Digest the original enclave dump when present. Recursively scan every service `spec.json` and `output.log` under the `enclave-dump-*` artifact.
 
-         First, build `runtime_components`: one object per client/service container where identity can be recovered. For each service, capture best-effort `{service_name, role, client, image_ref, image_id, manifest_digest, source_repo, source_revision, version, build_info, source}` from:
-         - Docker `spec.json`: `.Config.Image`, `.Image`, `.ImageManifestDescriptor.digest`, OCI labels such as `org.opencontainers.image.source`, `org.opencontainers.image.revision`, and `org.opencontainers.image.version`, plus ethereum-package labels when present.
+         First, build `runtime_components`: one object per runtime service where identity can be recovered. Do not limit this to the affected client pair. Include every participant EL/CL/VC service that maps to `client_pairs`, plus material non-client services configured by the args file such as `assertoor`. For each service, capture best-effort `{service_name, role, client, image_ref, image_id, manifest_digest, source_repo, source_revision, version, build_info, source}` from:
+         - Docker `spec.json`: `.Config.Image`, `.Image`, `.ImageManifestDescriptor.digest` (also tolerate `.ImageManifestDescriptor.Digest`), OCI labels such as `org.opencontainers.image.source`, `org.opencontainers.image.revision`, and `org.opencontainers.image.version`, plus ethereum-package labels when present.
          - Startup logs: build/version lines, client-version strings, and git branch/tag/commit fields.
-         Keep this factual. These identities are used later to compare a failed run against a previous successful run, especially when the configured image was a floating tag such as `latest`, `stable`, `master`, or a nightly.
+         For the assertoor service, set `role="assertoor"` and `client="assertoor"` and capture both the configured image ref and manifest digest when present. Keep this factual. These identities are used later to compare a failed run against a previous successful run and to replay the original run, especially when the configured image was a floating tag such as `latest`, `stable`, `master`, or a nightly.
+
+         Also build `package_runtime_identity` for the Kurtosis package invocation when evidence is present. Scan kurtosis-api/output.log and package runner logs for package execution lines, package ids, absolute locators, imported module locators, timestamps, and resolved commits. Return best-effort:
+         `{package_ref, package_started_at, source_repo, source_revision, source, evidence}`.
+         - `package_ref`: the locator Kurtosis executed, such as `github.com/ethpandaops/ethereum-package`.
+         - `package_started_at`: the closest timestamp for the package execution step, not merely the GitHub workflow start, when a timestamp can be parsed from logs.
+         - `source_repo`: normalized GitHub repo URL or owner/name for the package source when known.
+         - `source_revision`: resolved tag/branch/commit only when the logs prove it.
+         - `evidence`: one concise log-path/excerpt string that supports the identity.
 
          Then return up to 12 `original_artifact_evidence` entries. Each entry is `{source, category, summary, excerpt}` where `source` is a relative path plus line number when possible. Prefer high-signal excerpts from these categories:
          - `client-rpc-error`: a named client/service returned a concrete RPC/API error to a caller. Preserve the emitting service, API/RPC method, literal error string, and approximate count when available.
          - `client-runtime-identity`: service image digest/build identity evidence that is likely useful for regression comparison.
          - `p2p-peer-count`: peer count stuck low, "No GoodPeers", discovery/ENR problems, disconnected peers, mesh too sparse.
-         - `txpool-nonce-gap`: queued transactions blocked by a missing nonce, `nonce too low/high`, replacement underpriced, account queue/pending gaps.
+         - `txpool-admission`: transaction acceptance, promotion, replacement, nonce ordering, account queue, or pending-pool policy symptoms.
          - `txpool-queued-pending`: pending/queued divergence, txpool full/dropped, local tx accepted but not promoted.
          - `workload-account-error`: workload/account setup, wallet/account pool, nonce manager, generator, cancellation, or skipped bookkeeping errors in framework/dependency logs.
          - `late-tx-inclusion`: blocks eventually include the expected txs after the assertoor deadline/window.
          - `engine-api-warning`: engine payload, forkchoice, payload attributes, EL/CL engine API mismatch.
          - `client-panic`: panic, fatal crash, stack trace, database corruption.
-         - `bootnodoor-discovery`: bootnodoor, discv4/discv5, ENR, bootnode, discovery routing symptoms.
+         - `discovery-routing`: bootnode, discovery service, discv4/discv5, ENR, routing, or peer discovery symptoms.
          - `test-timeout`: explicit assertoor timeout/deadline lines.
          Cap each excerpt at 15 lines / 1500 characters. Do not include giant logs; cite the artifact path so humans can inspect the full dump.
 
       8. Infer `component_hints`: a short array of implicated components from the prior summary, failed leaves, client pairs, original artifact evidence, and runtime components. Include client names (`reth`, `besu`, `erigon`, `teku`, ...), and non-client components when evidence points there (`assertoor`, `spamoor`, `ethereum-package`, `bootnodoor`). This is a routing hint, not a verdict.
 
-      9. Build `evidence_brief`: a compact object for downstream prompts so they do not need to inline the full task tree, client matrix, and artifact excerpts. Keep it factual and terse:
+      9. Build `evidence_brief`: a compact object for later investigation prompts so they do not need to inline the full task tree, client matrix, and artifact excerpts. Keep it factual and terse:
          - `headline`: one sentence describing the observed failure surface.
          - `failure_shape`: test, root failed step, selected failed_step, category, and error signature.
          - `client_scope`: affected client pairs, passing client pairs, and notable participant/client image or runtime identity facts in one short paragraph.
@@ -129,7 +137,7 @@ tasks:
 
       10. Build `error_signature`: take the first non-empty line of either (a) `prior_ai_summary`'s first paragraph if it starts with "FAILED:" or similar one-line headline, (b) the deepest failed leaf title, or (c) the root failed row's description column from `failed_test_status`. Strip per-run noise: run ids, container hashes, ISO timestamps, hex addresses, port numbers. Keep it short (under 200 chars) and information-dense. This string will be normalised again by the fingerprint template — do not pre-normalise here.
 
-      11. Build `log_excerpts`: short evidence strings useful in canonical issue bodies and run reports. Include up to 6 entries:
+      11. Build `log_excerpts`: short evidence strings useful in issue bodies and run reports. Include up to 6 entries:
          - The cleaned failed_test_status row (one line).
          - The first 5 lines of `prior_ai_summary` when present (joined with newlines).
          - A compact "failed leaves" summary listing task_name + title + client_pair.
@@ -140,10 +148,10 @@ tasks:
       12. Build `artifact_paths`: list the artifact subdirectories present under `artifacts_dir` with their absolute paths. Each entry is `{name, path}`.
 
       13. Build `artifact_coverage`: a compact object describing which expected assertoor artifacts were present for this failed job:
-          `{has_summary, has_enclave_dump, has_claude_output, has_kurtosis_params, artifact_names, missing, notes}`.
+          `{has_summary, has_enclave_dump, has_ai_summary_artifact, has_kurtosis_params, artifact_names, missing, notes}`.
           Set `missing` to expected artifact families that were absent or unreadable. Include coverage gaps in `notes` and in `log_excerpts` when they materially limit diagnosis.
 
-      14. Determine `kurtosis_params_path`: look inside the `enclave-dump-*` artifact subdirectory for a file literally named `kurtosis-params.yaml` (the assertoor pipeline saves it there before dumping). Set `kurtosis_params_path` to its absolute path. If the enclave dump artifact is absent or the file is missing, set `kurtosis_params_path = ""` — downstream reproduction will skip. Reflect this in `artifact_coverage.has_kurtosis_params`.
+      14. Determine `kurtosis_params_path`: look inside the `enclave-dump-*` artifact subdirectory for a file literally named `kurtosis-params.yaml` (the assertoor pipeline saves it there before dumping). Set `kurtosis_params_path` to its absolute path. If the enclave dump artifact is absent or the file is missing, set `kurtosis_params_path = ""` — an empty path signals that reproduction should skip. Reflect this in `artifact_coverage.has_kurtosis_params`.
 
       15. Set the pass-through fields: `job_id`, `job_name` from the input, `run_id`, `run_url`, `head_sha`, and `run_started_at` from the template inputs.
 
@@ -274,7 +282,7 @@ tasks:
                       type: string
                     category:
                       type: string
-                      enum: [client-rpc-error, client-runtime-identity, p2p-peer-count, txpool-nonce-gap, txpool-queued-pending, workload-account-error, late-tx-inclusion, engine-api-warning, client-panic, bootnodoor-discovery, test-timeout, other]
+                      enum: [client-rpc-error, client-runtime-identity, p2p-peer-count, txpool-admission, txpool-queued-pending, workload-account-error, late-tx-inclusion, engine-api-warning, client-panic, discovery-routing, test-timeout, other]
                     summary:
                       type: string
                     excerpt:
@@ -311,6 +319,22 @@ tasks:
                       type: string
                     source:
                       type: string
+              package_runtime_identity:
+                type: object
+                properties:
+                  package_ref:
+                    type: string
+                  package_started_at:
+                    type: string
+                    description: Closest timestamp for the Kurtosis package execution step, when parsed from original CI logs
+                  source_repo:
+                    type: string
+                  source_revision:
+                    type: string
+                  source:
+                    type: string
+                  evidence:
+                    type: string
               evidence_brief:
                 type: object
                 properties:
@@ -349,7 +373,7 @@ tasks:
                     type: boolean
                   has_enclave_dump:
                     type: boolean
-                  has_claude_output:
+                  has_ai_summary_artifact:
                     type: boolean
                   has_kurtosis_params:
                     type: boolean
@@ -368,8 +392,6 @@ tasks:
                 description: Absolute path to the kurtosis-params.yaml inside the enclave-dump artifact; empty when the dump was not present
               prior_ai_summary:
                 type: string
-              prior_ai_confidence:
-                type: number
               run_id:
                 type: string
               run_url:

@@ -7,7 +7,7 @@ authors: [savid]
 homepage: https://github.com/ethpandaops/wagie-templates
 repository: https://github.com/ethpandaops/wagie-templates
 description: >-
-  Use when one normalized assertoor CI failure needs a canonical cheap-fingerprint string for dedup and cross-run matching. Encodes Ethereum/client/test-harness failure modes into a stable three-segment key; usually called by assertoor-ci-investigate before generic CI clustering.
+  Use when one normalized assertoor CI failure needs a canonical cheap-fingerprint string for dedup and cross-run matching. Encodes Ethereum/client/test-harness failure modes into a stable three-segment key.
 tags: ["assertoor", "ci", "ethereum", "fingerprint", "dedup", "triage"]
 defaults:
   retryable: true
@@ -102,7 +102,7 @@ inputs:
   existing_issues:
     type: array
     default: []
-    description: Existing open and recently closed ci-investigate issues from the target issue repo. Used only to reuse an already-canonical fingerprint when the issue content describes the same mechanism; closed issues are naming context, not active coverage.
+    description: Existing ci-investigate issues from the target issue repo. Used to reuse an already-canonical fingerprint when the issue content describes the same mechanism.
     schema:
       type: array
       items:
@@ -114,13 +114,7 @@ inputs:
             type: string
           title:
             type: string
-          state:
-            type: string
-          closed_at:
-            type: string
           cheap_fingerprint:
-            type: string
-          marker_state:
             type: string
           classification:
             type: string
@@ -130,11 +124,11 @@ inputs:
 tasks:
   fingerprint:
     run: assertoor-ci-fingerprint
-    quality-gate: "${{ has(result.cheap_fingerprint) && size(result.cheap_fingerprint) > 0 && has(result.human_label) && size(result.human_label) > 0 }}"
+    quality-gate: "${{ has(result.cheap_fingerprint) && size(result.cheap_fingerprint) > 0 && has(result.cluster_label) && size(result.cluster_label) > 0 }}"
     instructions: |-
       Produce a canonical assertoor cheap-fingerprint string for the provided failure.
 
-      Goal: identical failure surfaces across runs and shards must produce identical fingerprints. The fingerprint is the match key for cross-run dedup against open GitHub issues.
+      Goal: identical failure surfaces across runs and shards must produce identical fingerprints. The fingerprint is the match key for cross-run dedup against GitHub issues.
 
       Algorithm — apply deterministically:
 
@@ -150,12 +144,12 @@ tasks:
          d. To derive the canonical tag from `error_signature` (plus `prior_ai_summary`, `evidence_brief`, `failed_task_leaves`, `affected_client_pairs`, `client_pairs`, `original_artifact_evidence`, and `component_hints` when present for additional context):
             - Identify the 2-4 most-specific TECHNICAL keywords that describe the failure mode. Examples of good tags: `account-nonce-gap`, `txpool-policy-reject`, `txpool-promotion-stuck`, `block-proposal-empty`, `el-p2p-mesh-broken`, `finality-loss`, `client-panic-block-import`, `engine-payload-mismatch`, `attestation-flood`, `testnet-startup-timeout`.
             - DROP all of the following before tag generation:
-              * Narrative connectives (`legacy`, `multiple`, `on`, `with`, `from`, `the`, `and`, `is`, `are`).
+              * Narrative connectives (`multiple`, `on`, `with`, `from`, `the`, `and`, `is`, `are`).
               * Hedging / softening words (`appears to be`, `seems`, `likely`, `possibly`).
               * Per-shard specifics: pair names (`pair 1`, `1-reth-teku`), shard ids, run ids, hex addresses, uuids, timestamps, counts, port numbers.
               * Pluralisation suffixes when they don't change meaning (`transactions` → `tx`).
             - Usually drop implementation names (`reth`, `teku`, `geth`, …), but KEEP the emitting component name when it is part of the root-cause identifier rather than incidental matrix noise. Good generic shapes: `<client>-<subsystem>-<mechanism>`, `<tool>-<subsystem>-<mechanism>`, or `<network-component>-<mechanism>`.
-            - Preserve distinctive client policy/rejection reason words when they are part of the emitted error or documented mechanism, such as `too-large`, `too-low`, `underpriced`, `replacement-underpriced`, `insufficient-funds`, or `invalid-sender`. Do not collapse `nonce gap too large` to only `nonce-gap`; the suffix distinguishes policy threshold regressions from generic nonce-gap symptoms.
+            - Preserve distinctive client policy/rejection reason words when they are part of the emitted error or documented mechanism, such as `too-large`, `too-low`, `underpriced`, `replacement-underpriced`, `insufficient-funds`, or `invalid-sender`. Do not collapse a thresholded policy rejection into only the generic subsystem name; the emitted qualifier often distinguishes a concrete behavior change from a broad symptom family.
             - Lowercase, kebab-case-join (`-`), cap at 80 chars.
          e. **`failed_step` is deliberately excluded from the fingerprint.** Many assertoor tests have nested task trees where the same root cause is observed at different depths — e.g. an account-state or client-policy mechanism can surface at a leaf workload task on one shard, and at the parent task that owns child operations on another shard. These are the SAME bug seen at different points in the tree, and must produce the same fingerprint. The failed_step is retained on `NormalizedFailure` for human-readable rendering but does NOT participate in matching.
          f. For broad symptom families, split by mechanism when the evidence supports it. Do NOT collapse every "expected activity did not happen" surface into one bucket merely because the top-level test or assertion is the same.
@@ -171,38 +165,39 @@ tasks:
             - `"reth panic in block_import: index out of bounds at consensus.rs:142"` → `client-panic-block-import` (the client name and line number are per-build noise; the mode is the panic location category)
             - `"teku FATAL: invalid attestation signature on slot 1234"` → `consensus-attestation-validation-failure`
             - `"kurtosis testnet failed during startup"` → `testnet-startup-failure`
-         g. When the prior_ai_summary explicitly names a ROOT CAUSE with concrete evidence, prefer that mechanism wording for the tag — it's already canonicalised by the upstream investigator.
+         g. When `prior_ai_summary` explicitly names a ROOT CAUSE with concrete evidence, prefer that mechanism wording for the tag; it is already a compact diagnosis hint.
       3. Before finalising the fingerprint, compare the candidate fingerprint and current failure evidence against `existing_issues`:
-         - Prefer exact reuse over renaming. If an existing issue's fingerprint, title, and body excerpt describe the SAME underlying mechanism as the current failure, emit that existing issue's exact `cheap_fingerprint`. This applies to open issues and recently closed issues; state-check treats only open issues as active coverage.
-         - Treat wording changes as noise when the issue content matches the same mechanism. Examples of wording noise include synonyms like broken/partitioned, stuck/not-promoted, rejected/refused, delayed/timeout, or old/new human labels.
+         - Prefer exact reuse over renaming. If an existing issue's fingerprint, title, and body excerpt describe the SAME underlying mechanism as the current failure, emit that existing issue's exact `cheap_fingerprint`. GitHub open/closed state does not change fingerprint reuse.
+         - Treat wording changes as noise when the issue content matches the same mechanism. Examples of wording noise include synonyms like broken/partitioned, stuck/not-promoted, rejected/refused, delayed/timeout, or old/new cluster labels.
          - Match on mechanism, not only on shared top-level test names or broad symptoms. A same-test timeout caused by client txpool policy is NOT the same mechanism as a same-test timeout caused by P2P propagation.
          - When several existing issues look close, choose the one whose body excerpt most specifically explains the observed emitting component, subsystem, and failure mechanism. If still tied, prefer the oldest issue number as the canonical long-lived issue.
+         - Existing issues may carry suppression labels such as `ci-investigate:ignore`. Still reuse that issue's exact fingerprint when the mechanism matches; skip/publish decisions are based on issue state outside fingerprint generation.
          - Only mint a new fingerprint when no existing issue body/title describes the current mechanism.
          - Do not mutate or invent aliases here; just choose the final `cheap_fingerprint`.
       4. If no existing issue is reused, join the three normalised segments with `/`:
          `<test_name>/<canonical_outcome_family>/<canonical_failure_mode_tag>`
       5. If any of the three input fields is empty (or the tag cannot be derived from the available evidence), substitute the placeholder `unknown` in that position. Segment count must always be exactly three.
 
-      Bias toward MERGING over splitting when the failure modes are clearly the same despite narrative variation — under-clustering creates one issue per shard for what is one bug. The cost of an incorrect merge is one extra recurrence entry in the canonical issue body; the cost of an incorrect split is one extra GitHub issue per shard. Merging losses are recoverable, splitting losses are noisy.
+      Bias toward MERGING over splitting when the failure modes are clearly the same despite narrative variation — under-clustering creates one issue per shard for what is one bug. The cost of an incorrect merge is one existing issue update; the cost of an incorrect split is one extra GitHub issue per shard. Merging losses are recoverable, splitting losses are noisy.
 
       Bias toward SPLITTING when the root-cause mechanism is genuinely different, even if the same top-level assertoor test fails. In particular, split caller/workload state evidence from network propagation evidence and from client-local policy/promotion evidence. When unsure, lean toward the more canonical / less-specific tag that captures the family.
 
-      Also produce a `human_label`: a 6-12 word phrase describing the bug surface, e.g. "Client txpool policy rejects nonce-gap workload". This is what humans see in the issue title — keep it concrete and readable.
+      Also produce a `cluster_label`: a 6-12 word phrase describing the pre-investigation bug surface, e.g. "Client txpool policy rejects nonce-gap workload". This is the early cluster label used for reports and context; the final issue renderer may produce a more precise post-investigation `issue_title` while preserving this fingerprint.
 
-      Return both `cheap_fingerprint` and `human_label`.
+      Return both `cheap_fingerprint` and `cluster_label`.
     inputs:
       failure: ${{ inputs.failure }}
       existing_issues: ${{ inputs.existing_issues }}
     outputs:
       cheap_fingerprint: ${{ result.cheap_fingerprint }}
-      human_label: ${{ result.human_label }}
+      cluster_label: ${{ result.cluster_label }}
       schema:
         cheap_fingerprint:
           type: string
           description: Slash-delimited three-segment canonical fingerprint
-        human_label:
+        cluster_label:
           type: string
-          description: Short human-readable label for issue titles and cluster summaries
+          description: Short pre-investigation label for cluster summaries
 outputs:
   cheap_fingerprint: ${{ tasks.fingerprint.outputs.cheap_fingerprint }}
-  human_label: ${{ tasks.fingerprint.outputs.human_label }}
+  cluster_label: ${{ tasks.fingerprint.outputs.cluster_label }}

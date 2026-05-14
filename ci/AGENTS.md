@@ -8,10 +8,9 @@ Current building blocks:
 
 - `github-actions-failure-fetch`: read-only GitHub Actions run/job/artifact fetch via `gh`.
 - `failure-cluster`: exact grouping of already-fingerprinted normalized failures.
-- `ci-investigate-issue-context`: read-only open/recently-closed issue context lookup for semantic reuse before domain fingerprinting.
-- `ci-investigate-issue-state-check`: read-only marker/body state lookup for idempotent ci-investigate issues.
-- `ci-investigate-worklist`: status-policy mapping from issue state-check results to investigate/resume/recurrence/no-op work items.
-- `ci-investigate-issue-upsert-by-fingerprint`: body-only GitHub issue create/update/dedup plumbing for ci-investigate issue bodies.
+- `ci-investigate-issue-context`: read-only issue context lookup for semantic reuse before domain fingerprinting.
+- `ci-investigate-issue-state-check`: fingerprint state classification plus investigate/no-op item mapping from supplied issue context.
+- `ci-investigate-issue-publish-by-fingerprint`: body-only GitHub issue creation plumbing for ci-investigate issue bodies.
 - `discord-webhook-notify`: best-effort final notification to a Discord incoming webhook after durable issue publication.
 
 ## Boundary
@@ -30,7 +29,6 @@ NormalizedFailure:
   log_excerpts: [string]        # short failure-relevant evidence excerpts
   artifact_paths: [{name, path}]
   prior_ai_summary: string      # optional CI-side hint, may be empty
-  prior_ai_confidence: number
   run_id: string
   run_url: string
 ```
@@ -39,7 +37,7 @@ Family adapters can add domain fields, but generic `ci/` templates should only r
 
 ## Marker Schema Versioning
 
-Canonical issue bodies carry `<!-- ci-investigate:schema-version=N -->`. State-check reads by version and the issue upsert task writes by version. Bump the version when the marker shape changes. The current version is **1**.
+Rendered issue bodies carry `<!-- ci-investigate:schema-version=N -->`. Renderers write the marker, state-check parses it for context, and the final publisher writes the caller-rendered body verbatim. Bump the version when the marker shape changes. The current version is **1**.
 
 ## Worker Requirements
 

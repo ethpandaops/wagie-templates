@@ -7,20 +7,44 @@ authors: [savid]
 homepage: https://github.com/ethpandaops/wagie-templates
 repository: https://github.com/ethpandaops/wagie-templates
 description: >-
-  Use when a ci-investigate triage run needs to know which fingerprints already have a covering open GitHub issue. Searches `target_repo` for open `ci-investigate` HTML markers, returns parsed marker state plus existing issue bodies, and classifies each input fingerprint as new, covered-complete, covered-pending, or covered-stale. Pure `gh` plumbing.
-tags: ["ci", "ci-investigate", "github-issues", "state", "dedup", "idempotency"]
+  Use when a ci-investigate triage run needs to classify fingerprints against supplied GitHub issue context, regardless of whether the issue is open or closed. Produces both per-fingerprint state and investigation items from `ci-investigate` HTML markers.
+tags: ["ci", "ci-investigate", "github-issues", "state", "lookup", "idempotency"]
 defaults:
   retryable: true
   timeout: 30m
 inputs:
-  target_repo:
-    type: string
+  issues:
+    type: array
     required: true
-    description: GitHub repository in owner/name form where ci-investigate issues live
-  gh_token:
-    type: secret
-    required: false
-    description: Optional GitHub token secret used as GH_TOKEN for gh CLI commands. When unset, use ambient gh authentication.
+    description: GitHub issue records with parsed ci-investigate markers and normalized labels.
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          number:
+            type: number
+          url:
+            type: string
+          title:
+            type: string
+          created_at:
+            type: string
+          updated_at:
+            type: string
+          labels:
+            type: array
+            items:
+              type: string
+          cheap_fingerprint:
+            type: string
+          schema_version:
+            type: number
+          classification:
+            type: string
+          body_excerpt:
+            type: string
+        required: [number, url, title, cheap_fingerprint]
   fingerprints:
     type: array
     required: true
@@ -29,92 +53,50 @@ inputs:
       type: array
       items:
         type: string
-  staleness_days:
-    type: number
-    default: 30
-    description: An open issue is considered stale (covered-stale) when its last completed investigation timestamp is older than this many days
-  schema_version:
-    type: number
-    default: 1
-    description: Marker schema version the template understands
 tasks:
   check:
     selection:
-      capabilities: [tool-use]
+      capabilities: [reasoning]
     run: ci-investigate-issue-state-check
-    quality-gate: "${{ has(result.statuses) && size(result.statuses) == size(inputs.fingerprints) && has(result.existing_issue_bodies) && size(result.existing_issue_bodies) == size(inputs.fingerprints) }}"
+    quality-gate: "${{ has(result.statuses) && size(result.statuses) == size(inputs.fingerprints) && has(result.items) && has(result.skipped_items) }}"
     instructions: |-
-      Classify each requested fingerprint against the current GitHub issue state in `target_repo`.
+      Classify each requested fingerprint against the supplied `issues` array and produce investigation items.
 
-      This task is READ-ONLY against GitHub — never run any `gh` write commands here. ALL `gh` commands MUST be scoped to `target_repo` via `--repo <target_repo>`. Never depend on the worker's current-directory git remote — an unscoped query could silently hit an unintended repo.
+      Scope:
+      - Treat `issues` as the complete issue context for this decision.
+      - Do not call GitHub or any other remote service.
+      - Do not parse issue bodies beyond the structured marker fields already present on each issue object.
 
-      GitHub authentication:
-      - `gh_token` is an optional secret. When present, use it only as the `GH_TOKEN` environment variable for `gh` commands and set `GH_PROMPT_DISABLED=1`.
-      - When `gh_token` is absent, use the worker's ambient `gh` authentication (`gh auth status` should pass).
-      - Command examples below omit the environment wrapper; apply the authentication environment to every `gh` invocation.
-      - Do not run `gh auth login`, `gh auth token`, or `gh auth status --show-token`. Do not print, echo, persist, return, or write the token into files. Keep shell tracing and `GH_DEBUG` disabled while a token is in scope.
+      Policy:
+      - GitHub open/closed state is irrelevant. Any non-ignored matching issue covers the fingerprint and should stop new investigation.
+      - `ci-investigate:ignore` is an explicit operator suppression. It suppresses investigation only when all matching issues are ignored.
+      - If both ignored and non-ignored issues match the same fingerprint, return `covered-existing` using the oldest non-ignored issue.
+      - If multiple matching issues have the same status, pick the oldest `created_at`; if timestamps are missing or tied, pick the lowest issue number.
 
       Procedure:
+      1. Normalize every issue:
+         - Use `cheap_fingerprint` as the exact key. Ignore issues with an empty/missing fingerprint.
+         - Normalize labels to strings. If a label is an object, use its `name`; if it is already a string, use it directly.
+         - Treat `ci-investigate:ignore` as the only ignore marker.
+         - Preserve `schema_version` and `classification`, defaulting to `0` and `""`.
+      2. For each input `fingerprints[index]`, emit one `statuses[index]`:
+         - no matches: `status="new"`, `issue_number=0`, `issue_url=""`, `schema_version=0`, `classification=""`.
+         - only ignored matches: `status="ignored"`, with the selected ignored issue fields.
+         - any non-ignored match: `status="covered-existing"`, with the selected non-ignored issue fields.
+      3. Build `items` and `skipped_items` directly from `statuses` using the input array index as `cluster_index`:
+         - `new` -> `items[]` with `action="investigate"` and reason `new fingerprint`.
+         - `ignored` -> `skipped_items[]` with `action="skipped"` and reason `fingerprint suppressed by ci-investigate:ignore`.
+         - `covered-existing` -> `skipped_items[]` with `action="skipped"` and reason `existing issue already covers this fingerprint`.
+         - any unexpected status -> `skipped_items[]` with reason `unknown state-check status`.
 
-      1. Prefer repository-scoped issue inventory, then parse markers locally.
-         - List open labelled issues:
-           `gh issue list --repo <target_repo> --state open --label ci-investigate --limit 1000 --json number,url,state,createdAt,updatedAt,closedAt,labels`.
-         - Also list open marker-bearing issues even if labels are missing:
-           `gh issue list --repo <target_repo> --state open --search "in:body ci-investigate:cheap-fingerprint" --limit 1000 --json number,url,state,createdAt,updatedAt,closedAt,labels`.
-         - Merge both result sets by issue number. Do not let a failing query erase results from the other query; record the limitation in `summary` and continue.
-         - Fetch each candidate body with `gh issue view <number> --repo <target_repo> --json number,url,state,closedAt,createdAt,updatedAt,labels,body`.
-         - Parse every `ci-investigate:cheap-fingerprint` marker and build a local map keyed by exact marker value.
-         - For every input fingerprint still missing from the local map, fall back to a narrower marker body search:
-           `gh issue list --repo <target_repo> --state open --search "in:body ci-investigate:cheap-fingerprint=<fingerprint>" --limit 100 --json number,url,state,createdAt,updatedAt,closedAt,labels`
-         - If both inventory queries fail or return no candidates, run that fallback for every input fingerprint.
-
-         Do NOT use `gh search issues` with an inline `repo:<target_repo>` qualifier — in practice that form is unreliable and has been observed to return global-wildcard matches that ignore the qualifier. Always use the `--repo` flag form above when search fallback is needed. Closed issues are intentionally ignored by state-check; they may inform fingerprint naming upstream, but they never cover, block, reopen, or receive recurrence updates.
-
-      2. For fallback search matches not already fetched, retrieve full body and labels: `gh issue view <number> --repo <target_repo> --json number,url,state,closedAt,createdAt,updatedAt,labels,body`.
-
-      3. Normalize labels and parse markers from the body.
-         - GitHub CLI returns `labels` as objects. Immediately convert labels to a flat array of label names using each object's `.name` value. Treat absent/null labels as an empty array.
-         - All label comparisons below, including `ci-investigate:ignore`, must use normalized label names.
-
-         Expected markers (HTML comments, one per line):
-         - `<!-- ci-investigate:schema-version=N -->`
-         - `<!-- ci-investigate:cheap-fingerprint=... -->`
-         - `<!-- ci-investigate:classification=... -->` (empty or absent means unknown)
-         - `<!-- ci-investigate:state=pending|investigating|complete|stale -->`
-         - `<!-- ci-investigate:first-seen-run=... -->`
-         - `<!-- ci-investigate:last-seen-run=... -->`
-         - `<!-- ci-investigate:last-seen-at=... -->`
-         - `<!-- ci-investigate:last-investigated-run=... -->`
-         - `<!-- ci-investigate:last-investigated-at=... -->`
-         - `<!-- ci-investigate:title-locked=true|false -->` (may be absent)
-         - Labels may include `ci-investigate:ignore` (skip this issue entirely from matching).
-
-      4. Classify each fingerprint into one status:
-         - `new`: no open issue carries the marker, OR the only open matches have label `ci-investigate:ignore`. If only closed issues match, still return `new`.
-         - `covered-stale`: an open issue exists but its last completed investigation timestamp is older than now - `staleness_days`, regardless of marker state.
-         - `covered-complete`: an open issue exists with `state=complete` and a last completed investigation timestamp newer than now - `staleness_days`.
-         - `covered-pending`: an open issue exists with `state=pending` or `state=investigating` and is not stale (a prior run is partway done; downstream should not start a separate investigation unless it is resuming the same run).
-
-         Staleness MUST be based on `last-investigated-at` when present. If that marker is absent, fall back to the issue `createdAt` timestamp, not issue `updatedAt`; recurrence-only body edits update GitHub's `updatedAt` and must not refresh the investigation freshness clock. Use `last-seen-at` only for operator context, never for staleness.
-
-         If multiple issues match one fingerprint, pick the one with the oldest `createdAt` as the canonical long-lived issue, matching the publisher's dedup policy. Note the others in `additional_issue_numbers`.
-
-      5. For each status, return: `fingerprint`, `status`, `issue_number` (0 when none), `issue_url`, `issue_state` (open/closed), `last_seen_at` (parsed `last-seen-at`, falling back to issue `updatedAt` only for display/context), `last_investigated_at` (timestamp used for staleness, using issue `createdAt` only when the marker is absent), `schema_version` (parsed; 0 when missing), `marker_state`, `classification`, `first_seen_run`, `last_seen_run`, `last_investigated_run`, `title_locked`, and `additional_issue_numbers` (empty array when none). These parsed marker fields are needed so downstream publishers can preserve issue history while replacing the body.
-
-      6. Also return `existing_issue_bodies`, aligned one-for-one with `fingerprints`. Each entry is `{cheap_fingerprint, issue_body}`. Use the chosen matching issue's full body when an issue exists and is not ignored; otherwise use an empty string. This avoids a second GitHub read step downstream.
-
-      Return `statuses` with one entry per input fingerprint, in the same order. The size of `statuses` MUST equal the size of `fingerprints`. Include a short `summary` describing how many were new vs covered.
-
-      Respect the `ci-investigate:ignore` label: never classify a fingerprint as covered by an ignored issue.
+      Return `statuses`, `items`, and `skipped_items` in stable input order, plus a one-sentence summary with counts for new, ignored, and covered-existing.
     inputs:
-      target_repo: ${{ inputs.target_repo }}
-      gh_token: ${{ inputs.?gh_token }}
+      issues: ${{ inputs.issues }}
       fingerprints: ${{ inputs.fingerprints }}
-      staleness_days: ${{ inputs.staleness_days }}
-      schema_version: ${{ inputs.schema_version }}
     outputs:
       statuses: "${{ result.statuses }}"
-      existing_issue_bodies: "${{ has(result.existing_issue_bodies) ? result.existing_issue_bodies : [] }}"
+      items: "${{ has(result.items) ? result.items : [] }}"
+      skipped_items: "${{ has(result.skipped_items) ? result.skipped_items : [] }}"
       summary: "${{ has(result.summary) ? result.summary : '' }}"
       schema:
         statuses:
@@ -126,64 +108,69 @@ tasks:
                 type: string
               status:
                 type: string
-                enum: [new, covered-complete, covered-pending, covered-stale]
+                enum: [new, ignored, covered-existing]
               issue_number:
                 type: number
                 description: 0 when no covering issue exists
               issue_url:
                 type: string
-              issue_state:
-                type: string
-                description: open or closed
-              last_seen_at:
-                type: string
-                description: Last seen ISO timestamp for display/context. Do not use this to decide staleness.
-              last_investigated_at:
-                type: string
-                description: Last completed investigation ISO timestamp used for staleness; falls back to issue createdAt when the marker is absent
               schema_version:
                 type: number
                 description: Version parsed from the issue marker, 0 when missing
-              marker_state:
-                type: string
-                description: Parsed ci-investigate state marker, such as pending, investigating, complete, or stale
               classification:
                 type: string
                 description: Parsed classification marker, empty or unknown when absent
-              first_seen_run:
-                type: string
-                description: Parsed first-seen-run marker, empty when none
-              last_seen_run:
-                type: string
-                description: Parsed last-seen-run marker, empty when none
-              last_investigated_run:
-                type: string
-                description: Parsed last-investigated-run marker, empty when none
-              title_locked:
-                type: boolean
-                description: Parsed title-locked marker, false when absent
-              additional_issue_numbers:
-                type: array
-                items:
-                  type: number
-                description: Other issues that matched the same fingerprint, sorted oldest first
-            required: [fingerprint, status, issue_number, issue_state]
+            required: [fingerprint, status, issue_number]
           description: Per-fingerprint state classification aligned with input order
-        summary:
-          type: string
-          description: Short summary of classification outcome
-        existing_issue_bodies:
+        items:
           type: array
           items:
             type: object
             properties:
-              cheap_fingerprint:
+              cluster_index:
+                type: number
+              fingerprint:
                 type: string
-              issue_body:
+              action:
                 type: string
-            required: [cheap_fingerprint, issue_body]
-          description: Existing issue bodies aligned with input fingerprints. Empty body means no usable existing issue body.
+                enum: [investigate]
+              state_check_status:
+                type: string
+              issue_number:
+                type: number
+              issue_url:
+                type: string
+              reason:
+                type: string
+            required: [cluster_index, fingerprint, action, state_check_status, reason]
+          description: New fingerprints to investigate, aligned by original cluster index.
+        skipped_items:
+          type: array
+          items:
+            type: object
+            properties:
+              cluster_index:
+                type: number
+              fingerprint:
+                type: string
+              action:
+                type: string
+                enum: [skipped]
+              state_check_status:
+                type: string
+              issue_number:
+                type: number
+              issue_url:
+                type: string
+              reason:
+                type: string
+            required: [cluster_index, fingerprint, action, state_check_status, reason]
+          description: Fingerprints skipped because an existing or ignored issue already covers them.
+        summary:
+          type: string
+          description: Short summary of classification outcome
 outputs:
   statuses: ${{ tasks.check.outputs.statuses }}
-  existing_issue_bodies: ${{ tasks.check.outputs.existing_issue_bodies }}
+  items: ${{ tasks.check.outputs.items }}
+  skipped_items: ${{ tasks.check.outputs.skipped_items }}
   summary: ${{ tasks.check.outputs.summary }}

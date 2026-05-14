@@ -7,7 +7,7 @@ authors: [savid]
 homepage: https://github.com/ethpandaops/wagie-templates
 repository: https://github.com/ethpandaops/wagie-templates
 description: >-
-  Use when an array of normalized CI failure records has already been fingerprinted and needs exact grouping by cheap-fingerprint. Generic clustering only; domain-specific merge/split behavior belongs in the upstream fingerprint template.
+  Use when an array of normalized CI failure records and aligned fingerprints need exact grouping by cheap-fingerprint. Generic clustering only; domain-specific merge/split behavior should be encoded in the supplied fingerprints.
 tags: ["ci", "cluster", "dedup", "triage"]
 defaults:
   retryable: true
@@ -64,7 +64,7 @@ inputs:
   fingerprints:
     type: array
     required: true
-    description: Per-failure fingerprint records aligned by index with `failures`. Each entry has `index`, `cheap_fingerprint`, and `human_label`.
+    description: Per-failure fingerprint records aligned by index with `failures`. Each entry has `index`, `cheap_fingerprint`, and `cluster_label`.
     schema:
       type: array
       items:
@@ -74,9 +74,9 @@ inputs:
             type: number
           cheap_fingerprint:
             type: string
-          human_label:
+          cluster_label:
             type: string
-        required: [index, cheap_fingerprint, human_label]
+        required: [index, cheap_fingerprint, cluster_label]
 tasks:
   cluster:
     run: failure-cluster
@@ -93,22 +93,22 @@ tasks:
         2. non-empty `prior_ai_summary`,
         3. non-empty `evidence_brief`,
         4. lowest index.
-      - Use the representative's `human_label` as the cluster's `human_label`.
-      - Sort clusters by their lowest member index so downstream rendering and reports are stable across parallel/matrix scheduling.
-      - In `rationale`, name the shared fingerprint, list member shard_ids when available, and briefly explain why the exact match was grouped. Do not add domain-specific ownership or root-cause claims here; those belong upstream in fingerprinting or downstream in investigation.
+      - Use the representative's `cluster_label` as the cluster's early cluster label. This label describes the pre-investigation failure surface and is not a final issue title.
+      - Sort clusters by their lowest member index so output order is stable across parallel/matrix scheduling.
+      - In `rationale`, name the shared fingerprint, list member shard_ids when available, and briefly explain why the exact match was grouped. Do not add domain-specific ownership or root-cause claims here; this task only groups exact fingerprints.
 
       Also return two flat arrays aligned with `clusters` by index:
       - `cluster_fingerprints`: one cheap_fingerprint string per cluster.
-      - `cluster_human_labels`: one human_label string per cluster.
+      - `cluster_labels`: one cluster_label string per cluster.
 
-      If the input arrays are empty, return `clusters: []`, `cluster_fingerprints: []`, `cluster_human_labels: []`, and a `summary` saying there was nothing to cluster.
+      If the input arrays are empty, return `clusters: []`, `cluster_fingerprints: []`, `cluster_labels: []`, and a `summary` saying there was nothing to cluster.
     inputs:
       failures: ${{ inputs.failures }}
       fingerprints: ${{ inputs.fingerprints }}
     outputs:
       clusters: "${{ has(result.clusters) ? result.clusters : [] }}"
       cluster_fingerprints: "${{ has(result.cluster_fingerprints) ? result.cluster_fingerprints : [] }}"
-      cluster_human_labels: "${{ has(result.cluster_human_labels) ? result.cluster_human_labels : [] }}"
+      cluster_labels: "${{ has(result.cluster_labels) ? result.cluster_labels : [] }}"
       summary: "${{ has(result.summary) ? result.summary : '' }}"
       schema:
         cluster_fingerprints:
@@ -116,11 +116,11 @@ tasks:
           items:
             type: string
           description: Flat array of cheap_fingerprint per cluster, aligned by index
-        cluster_human_labels:
+        cluster_labels:
           type: array
           items:
             type: string
-          description: Flat array of human_label per cluster, aligned by index
+          description: Flat array of cluster_label per cluster, aligned by index
         clusters:
           type: array
           items:
@@ -128,7 +128,7 @@ tasks:
             properties:
               cheap_fingerprint:
                 type: string
-              human_label:
+              cluster_label:
                 type: string
               representative_index:
                 type: number
@@ -148,7 +148,7 @@ tasks:
               rationale:
                 type: string
                 description: Short note describing the cluster and its membership
-            required: [cheap_fingerprint, human_label, representative_index, member_indices, member_count]
+            required: [cheap_fingerprint, cluster_label, representative_index, member_indices, member_count]
           description: Clusters of failures sharing one cheap_fingerprint
         summary:
           type: string
@@ -156,5 +156,5 @@ tasks:
 outputs:
   clusters: ${{ tasks.cluster.outputs.clusters }}
   cluster_fingerprints: ${{ tasks.cluster.outputs.cluster_fingerprints }}
-  cluster_human_labels: ${{ tasks.cluster.outputs.cluster_human_labels }}
+  cluster_labels: ${{ tasks.cluster.outputs.cluster_labels }}
   summary: ${{ tasks.cluster.outputs.summary }}

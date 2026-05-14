@@ -7,7 +7,7 @@ authors: [savid]
 homepage: https://github.com/ethpandaops/wagie-templates
 repository: https://github.com/ethpandaops/wagie-templates
 description: >-
-  Use when an assertoor-test failure needs a factual last-known-good comparison before reproduction, bug-hunt, or source review. Usually called by assertoor-ci-investigate; emits a structured regression window rather than a root-cause verdict.
+  Use when an assertoor-test failure needs a factual last-known-good comparison before reproduction, bug-hunt, or source review. Emits a structured regression window rather than a root-cause verdict.
 tags: ["assertoor", "ci", "regression", "baseline", "github-actions", "ethereum", "ethpandaops"]
 defaults:
   retryable: true
@@ -104,6 +104,21 @@ inputs:
                 type: string
               build_info:
                 type: string
+        package_runtime_identity:
+          type: object
+          properties:
+            package_ref:
+              type: string
+            package_started_at:
+              type: string
+            source_repo:
+              type: string
+            source_revision:
+              type: string
+            source:
+              type: string
+            evidence:
+              type: string
         original_artifact_evidence:
           type: array
           items:
@@ -139,7 +154,7 @@ tasks:
     instructions: |-
       Build a factual regression window by comparing this failed shard/test against the nearest previous successful workflow run for the same repo, branch, workflow, and shard.
 
-      This task does not assign root cause. It produces structured change facts for downstream bug-hunt, classification, and source review.
+      This task does not assign root cause. It produces structured change facts for bug-hunt, classification, and source review.
 
       GitHub authentication:
       - `gh_token` is an optional secret. When present, use it only as the `GH_TOKEN` environment variable for `gh` commands and set `GH_PROMPT_DISABLED=1`.
@@ -159,16 +174,18 @@ tasks:
          - configured participant image refs from kurtosis-params.yaml
          - runtime image identity from service spec.json: Config.Image, Image, ImageManifestDescriptor.digest, OCI source/version/revision labels
          - startup build/version lines from service output.log
+         - Kurtosis package runtime identity from kurtosis-api/output.log: package locator, package execution timestamp, resolved source repo, and resolved revision when available
       4. Treat mutable tags such as latest, stable, master, main, nightly, dev, or unpinned repo images as unresolved until converted to a manifest digest or build/source revision from artifacts.
-      5. Build component_changes as one row per comparable runtime or configured component:
+      5. Include the Kurtosis package source as a comparable component when either current or previous artifact evidence identifies it. Use `component="ethereum-package"` (or the package repo name), `role="kurtosis-package"`, package locators as image_ref fields when no image ref applies, and source revisions/timestamps in the revision/evidence fields.
+      6. Build component_changes as one row per comparable runtime, configured component, or package source:
          {component, service_name, role, previous_image_ref, current_image_ref, previous_digest, current_digest, previous_revision, current_revision, previous_version, current_version, changed, evidence}
-      6. Split component_changes into:
+      7. Split component_changes into:
          - changed_components: changed=true or strong evidence of different source/build identity
          - unchanged_components: confidently same digest/revision/version
          - unresolved_components: mutable or missing identity where equality cannot be proven
-      7. Build target_ranking. Rank components highest when they both changed across the window and emitted concrete original artifact evidence. If no emitter changed, rank the smallest changed set before unresolved components.
-      8. Build commit_ranges when both previous_revision and current_revision look like commits in the same source repo.
-      9. Render baseline_summary as compact markdown under 100 lines:
+      8. Build target_ranking. Rank components highest when they both changed across the window and emitted concrete original artifact evidence. If no emitter changed, rank the smallest changed set before unresolved components.
+      9. Build commit_ranges when both previous_revision and current_revision look like commits in the same source repo, including the package source repo when comparable.
+      10. Render baseline_summary as compact markdown under 100 lines:
          - previous success run id/url/timestamp/head sha
          - current failure run id/url/timestamp/head sha
          - changed components

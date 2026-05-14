@@ -7,39 +7,28 @@ authors: [savid]
 homepage: https://github.com/ethpandaops/wagie-templates
 repository: https://github.com/ethpandaops/wagie-templates
 description: >-
-  Use to resolve an Ethereum client Docker image reference, or a Kurtosis enclave service name, to its underlying Git repository URL and commit SHA for source investigation. Tries OCI labels first, then a curated map of known Ethereum client image patterns.
-tags: ["kurtosis", "ethereum", "ethpandaops", "client", "image", "git", "resolve"]
+  Use to resolve an Ethereum client Docker image reference to its underlying Git repository URL and commit SHA for source investigation. Tries OCI labels first, then a curated map of known Ethereum client image patterns.
+tags: ["ethereum", "ethpandaops", "client", "image", "git", "resolve"]
 defaults:
   retryable: true
   timeout: 30m
 inputs:
   image_ref:
     type: string
-    default: ""
-    description: Docker image reference (e.g. `ethpandaops/reth:main`). When empty, the task derives it from the enclave service.
-  enclave_name:
-    type: string
-    default: ""
-    description: Kurtosis enclave name to inspect when `image_ref` is empty.
-  service_name:
-    type: string
-    default: ""
-    description: Kurtosis service name (e.g. `el-1-reth-teku`) whose image should be resolved. Used together with `enclave_name`.
+    required: true
+    description: Docker image reference from the original CI runtime identity, e.g. `ethpandaops/reth:main` or a digest-pinned ref.
 tasks:
   resolve:
     selection:
       capabilities: [tool-use]
-      labels: [kurtosis]
     run: resolve-client-image
     quality-gate: "${{ has(result.resolution_method) }}"
     instructions: |-
-      Resolve an Ethereum client image to its git repo URL + commit SHA. Best-effort. Always return — emit empty fields with `resolution_method = "failed"` when nothing can be resolved. Distinguish exact tested source identity from repository-only fallbacks; downstream source links must not imply a mutable image tag was resolved to its tested commit.
+      Resolve an Ethereum client image to its git repo URL + commit SHA. Best-effort. Always return — emit empty fields with `resolution_method = "failed"` when nothing can be resolved. Distinguish exact tested source identity from repository-only fallbacks; source links must not imply a mutable image tag was resolved to its tested commit.
 
       Procedure:
 
-      1. If `image_ref` is empty:
-         - If `enclave_name` and `service_name` are provided, run `kurtosis enclave inspect <enclave_name>` and parse the image used by `<service_name>`. Set `image_ref` to that.
-         - Else: set `resolution_method = "failed"`, return empty fields.
+      1. If `image_ref` is empty, set `resolution_method = "failed"`, `commit_exact=false`, `resolution_caveat="image_ref was empty"`, and return empty fields.
 
       2. Try OCI labels first:
          - `docker inspect <image_ref> --format '{{json .Config.Labels}}'` (pull the image first if not local, with a short timeout — skip pulling if it would take more than ~30s).
@@ -77,7 +66,7 @@ tasks:
          - Parse `image_ref` into `<registry>/<org>/<name>:<tag>` (or `<org>/<name>:<tag>` for docker hub).
          - For docker hub images (no registry or `docker.io/`), default `repo_url = https://github.com/<org>/<name>`. Most modern OCI images on docker hub follow this convention.
          - For `ghcr.io/<org>/<name>` images, default `repo_url = https://github.com/<org>/<name>` (literal mapping).
-         - For `gcr.io/`, `registry.gitlab.com/`, or other registries: do NOT guess — return `resolution_method = "failed"`. Forcing a wrong URL would cause a 5+ minute clone failure downstream.
+         - For `gcr.io/`, `registry.gitlab.com/`, or other registries: do NOT guess — return `resolution_method = "failed"`. Forcing a wrong URL would cause avoidable clone failures for source inspection.
          - Set `client_name` to `<name>` (lowercased, suffix-stripped like step 3 if matched there).
          - Set `resolution_method = "tag-match"`.
 
@@ -85,7 +74,7 @@ tasks:
          - If the image tag is a 7-40 char hex string, use it as `commit_sha`.
          - If the tag has a `-g<sha>` suffix (common for git-describe builds), extract the SHA from after `g`.
          - If the tag is a semver like `v1.2.3` or `release-v1.2.3`, resolve that tag against `repo_url` with `git ls-remote --tags` and return the tag commit when found. Do not leave it empty unless tag resolution fails.
-         - If the tag is `latest`, `main`, `master`, `nightly`, `dev`, or another mutable/unresolved tag: leave `commit_sha` empty and set `resolution_method = "default-head-fallback"` when `repo_url` is known. This means downstream may inspect the repo's current default branch, not the exact source revision that built the tested image.
+         - If the tag is `latest`, `main`, `master`, `nightly`, `dev`, or another mutable/unresolved tag: leave `commit_sha` empty and set `resolution_method = "default-head-fallback"` when `repo_url` is known. This means source inspection may use the repo's current default branch, not the exact source revision that built the tested image.
 
       6. Set exactness metadata:
          - `commit_exact=true` when `commit_sha` came from an OCI revision label, an exact hex tag, a git-describe suffix, or a resolved semver/release tag.
@@ -97,8 +86,6 @@ tasks:
       Always emit a short `summary` (1-2 sentences) describing what was tried and the outcome.
     inputs:
       image_ref: ${{ inputs.image_ref }}
-      enclave_name: ${{ inputs.enclave_name }}
-      service_name: ${{ inputs.service_name }}
     outputs:
       repo_url: "${{ has(result.repo_url) ? result.repo_url : '' }}"
       commit_sha: "${{ has(result.commit_sha) ? result.commit_sha : '' }}"
@@ -124,7 +111,7 @@ tasks:
           description: How the resolution was achieved
         resolved_image_ref:
           type: string
-          description: The image ref actually inspected (useful when caller passed only enclave+service)
+          description: The image ref actually inspected
         commit_exact:
           type: boolean
           description: True when commit_sha is tied to the tested image identity; false for default-branch fallbacks or unresolved mutable tags

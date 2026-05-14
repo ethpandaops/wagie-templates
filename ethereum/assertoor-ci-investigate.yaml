@@ -7,7 +7,7 @@ authors: [savid]
 homepage: https://github.com/ethpandaops/wagie-templates
 repository: https://github.com/ethpandaops/wagie-templates
 description: >-
-  Use after an assertoor-test scheduled run to triage its failures into long-lived per-root-cause GitHub issues, with optional local reproduction and bug-hunt investigation per cluster. Fetches the failing run, parses per-shard artifacts, fingerprints + clusters by root cause, dedups against existing issues, compares each cluster against its nearest previous successful baseline, reproduces representative failures on kurtosis workers, runs the bug-hunt loop against each live enclave (existing-enclave mode, no wasted config-design call), classifies the root cause, and upserts one canonical issue body per cluster.
+  Use after an assertoor-test scheduled run to triage its failures into long-lived per-root-cause GitHub issues, with optional local reproduction and bug-hunt investigation per new cluster. Fetches the failing run, parses per-shard artifacts, fingerprints + clusters by root cause, skips fingerprints already covered by any existing issue, compares each new cluster against its nearest previous successful baseline, reproduces representative failures on Kurtosis workers, runs the bug-hunt loop against each reproduced network, classifies the root cause, and creates one issue per new cluster.
 tags: ["ci", "assertoor", "ethereum", "ethpandaops", "triage", "nightly", "auto-debug", "kurtosis", "bug-hunt"]
 defaults:
   retryable: true
@@ -20,7 +20,7 @@ inputs:
   issue_repo:
     type: string
     default: ""
-    description: "GitHub repository where ALL ci-investigate side effects land: new issues, canonical body/label edits, and dedup-driven closes. When empty, falls back to `source_repo`."
+    description: "GitHub repository where ci-investigate creates issues. When empty, falls back to `source_repo`."
   gh_token:
     type: secret
     required: false
@@ -33,18 +33,6 @@ inputs:
     type: string
     default: ""
     description: Specific run id to triage; when empty, the latest completed scheduled workflow run is selected and the template no-ops when that latest completed run is green/non-failing.
-  staleness_days:
-    type: number
-    default: 30
-    description: Open covering issues older than this many days are treated as stale and re-investigated.
-  closed_context_days:
-    type: number
-    default: 14
-    description: Recently closed marker-bearing issues within this many days are used only as fingerprint naming context. Closed issues never cover, block, reopen, or receive recurrence updates.
-  schema_version:
-    type: number
-    default: 1
-    description: Marker schema version this template writes.
   skip_reproduction:
     type: boolean
     default: false
@@ -61,11 +49,11 @@ inputs:
     type: number
     default: 4
     description: >-
-      How many times each cluster's reproduce task retries launch then await_assertoor before giving up. Forwarded to `assertoor-ci-kurtosis-reproduce`. The loop stops early on the first successful reproduction. Every attempt uses the stock assertoor test YAML and original timeout values. Default 4 gives ~94% cumulative odds for a 50% per-attempt bug and ~68% for a 25% per-attempt bug. Bump for stubborn / rare non-deterministic bugs; set to 1 to disable retries.
+      How many times each cluster's reproduce task retries launch then await_assertoor before giving up. Forwarded to `assertoor-ci-kurtosis-reproduce`. The loop stops early on the first successful reproduction. Every attempt preserves the original assertoor timeout values and uses the selected test scope. Default 4 gives ~94% cumulative odds for a 50% per-attempt bug and ~68% for a 25% per-attempt bug. Bump for stubborn / rare non-deterministic bugs; set to 1 to disable retries.
   narrow_to_failing_test:
     type: boolean
-    default: false
-    description: Forwarded to `assertoor-ci-kurtosis-reproduce`. When false (default), reproduction mirrors the CI's full sequential queue. Set true only for a deliberately narrowed diagnostic run that drops every `assertoor_params.tests` entry except the originally-failing test.
+    default: true
+    description: Forwarded to `assertoor-ci-kurtosis-reproduce`. When true (default), reproduction patches the args file to run only the originally-failing assertoor test while preserving its stock YAML and timeout values. Set false for a faithful full-queue run when queue/order/state coupling is suspected.
   enable_source_dive:
     type: boolean
     default: true
@@ -73,11 +61,11 @@ inputs:
   discord_webhook_url:
     type: secret
     required: false
-    description: Optional Discord incoming webhook URL secret. When provided, the final issue-publish summary sends one best-effort Discord message after canonical issue bodies are written. Pending reservation issue writes never notify.
+    description: Optional Discord incoming webhook URL secret. When provided, the final issue-publish summary sends one best-effort Discord message after issue bodies are published.
   discord_min_confidence:
     type: number
-    default: 85
-    description: Minimum notification confidence required for a final issue to be included in the Discord notification. Set to 0 or lower to notify for every final touched issue with a known classification.
+    default: 65
+    description: Minimum notification confidence required for a created issue to be included in the Discord notification. Set to 0 or lower to notify for every created issue with a known classification.
 tasks:
   fetch:
     uses: io.ethpandaops/github-actions-failure-fetch@1.0.0
@@ -86,6 +74,10 @@ tasks:
       gh_token: ${{ inputs.?gh_token }}
       workflow_ref: ${{ inputs.workflow_ref }}
       run_id: ${{ inputs.run_id }}
+      artifact_patterns:
+        - "summary-*"
+        - "enclave-dump-*"
+        - "claude-code-output-*"
       conclusion_filter: ["failure", "timed_out"]
     outputs:
       run_id: run_id
@@ -117,9 +109,7 @@ tasks:
     inputs:
       target_repo: "${{ inputs.issue_repo != '' ? inputs.issue_repo : inputs.source_repo }}"
       gh_token: ${{ inputs.?gh_token }}
-      schema_version: ${{ inputs.schema_version }}
       max_issues: 500
-      closed_window_days: ${{ inputs.closed_context_days }}
     outputs:
       issues: issues
       fingerprints: fingerprints
@@ -143,9 +133,9 @@ tasks:
           existing_issues: ${{ inputs.existing_issues }}
         outputs:
           cheap_fingerprint: cheap_fingerprint
-          human_label: human_label
+          cluster_label: cluster_label
     outputs:
-      fingerprints: 'append(${{ {"index": inputs.idx, "cheap_fingerprint": tasks.fp.outputs.cheap_fingerprint, "human_label": tasks.fp.outputs.human_label} }})'
+      fingerprints: 'append(${{ {"index": inputs.idx, "cheap_fingerprint": tasks.fp.outputs.cheap_fingerprint, "cluster_label": tasks.fp.outputs.cluster_label} }})'
       schema:
         fingerprints:
           type: array
@@ -156,9 +146,9 @@ tasks:
                 type: number
               cheap_fingerprint:
                 type: string
-              human_label:
+              cluster_label:
                 type: string
-            required: [index, cheap_fingerprint, human_label]
+            required: [index, cheap_fingerprint, cluster_label]
   cluster:
     needs: [adapt, fingerprint_each]
     if: "${{ has(tasks.adapt.outputs.normalized_failures) && size(tasks.adapt.outputs.normalized_failures) > 0 }}"
@@ -169,52 +159,34 @@ tasks:
     outputs:
       clusters: clusters
       cluster_fingerprints: cluster_fingerprints
-      cluster_human_labels: cluster_human_labels
+      cluster_labels: cluster_labels
       summary: summary
   state_check:
-    needs: [cluster]
+    needs: [issue_context, cluster]
     if: "${{ has(tasks.cluster.outputs.clusters) && size(tasks.cluster.outputs.clusters) > 0 }}"
     uses: io.ethpandaops/ci-investigate-issue-state-check@1.0.0
     inputs:
-      target_repo: "${{ inputs.issue_repo != '' ? inputs.issue_repo : inputs.source_repo }}"
-      gh_token: ${{ inputs.?gh_token }}
+      issues: ${{ tasks.issue_context.outputs.issues }}
       fingerprints: ${{ tasks.cluster.outputs.cluster_fingerprints }}
-      staleness_days: ${{ inputs.staleness_days }}
-      schema_version: ${{ inputs.schema_version }}
     outputs:
       statuses: statuses
-      existing_issue_bodies: existing_issue_bodies
-      summary: summary
-  worklist:
-    needs: [fetch, cluster, state_check]
-    if: "${{ has(tasks.state_check.outputs.statuses) && size(tasks.state_check.outputs.statuses) > 0 }}"
-    uses: io.ethpandaops/ci-investigate-worklist@1.0.0
-    inputs:
-      statuses: ${{ tasks.state_check.outputs.statuses }}
-      current_run_id: ${{ tasks.fetch.outputs.run_id }}
-    outputs:
       items: items
-      recurrence_items: recurrence_items
       skipped_items: skipped_items
       summary: summary
   investigate_each:
-    needs: [fetch, adapt, cluster, state_check, worklist, publish_pending]
-    if: "${{ has(tasks.worklist.outputs.items) && size(tasks.worklist.outputs.items) > 0 }}"
+    needs: [fetch, adapt, cluster, state_check]
     strategy:
       matrix:
-        idx: "${{ range(tasks.worklist.outputs.items.size()) }}"
+        idx: "${{ range(tasks.state_check.outputs.items.size()) }}"
       fail-fast: false
-    selection:
-      sticky: true
-      labels: [kurtosis]
     inputs:
-      work_item: "${{ tasks.worklist.outputs.items[matrix.idx] }}"
-      cluster_idx: "${{ tasks.worklist.outputs.items[matrix.idx].cluster_index }}"
-      cluster: "${{ tasks.cluster.outputs.clusters[tasks.worklist.outputs.items[matrix.idx].cluster_index] }}"
-      cheap_fingerprint: "${{ tasks.cluster.outputs.cluster_fingerprints[tasks.worklist.outputs.items[matrix.idx].cluster_index] }}"
-      human_label: "${{ tasks.cluster.outputs.cluster_human_labels[tasks.worklist.outputs.items[matrix.idx].cluster_index] }}"
-      status: "${{ tasks.state_check.outputs.statuses[tasks.worklist.outputs.items[matrix.idx].cluster_index] }}"
-      representative: "${{ tasks.adapt.outputs.normalized_failures[tasks.cluster.outputs.clusters[tasks.worklist.outputs.items[matrix.idx].cluster_index].representative_index] }}"
+      work_item: "${{ tasks.state_check.outputs.items[matrix.idx] }}"
+      cluster_idx: "${{ tasks.state_check.outputs.items[matrix.idx].cluster_index }}"
+      cluster: "${{ tasks.cluster.outputs.clusters[tasks.state_check.outputs.items[matrix.idx].cluster_index] }}"
+      cheap_fingerprint: "${{ tasks.cluster.outputs.cluster_fingerprints[tasks.state_check.outputs.items[matrix.idx].cluster_index] }}"
+      cluster_label: "${{ tasks.cluster.outputs.cluster_labels[tasks.state_check.outputs.items[matrix.idx].cluster_index] }}"
+      status: "${{ tasks.state_check.outputs.statuses[tasks.state_check.outputs.items[matrix.idx].cluster_index] }}"
+      representative: "${{ tasks.adapt.outputs.normalized_failures[tasks.cluster.outputs.clusters[tasks.state_check.outputs.items[matrix.idx].cluster_index].representative_index] }}"
       skip_reproduction: ${{ inputs.skip_reproduction }}
       max_bug_hunt_rounds: "${{ inputs.max_bug_hunt_rounds }}"
       reproduction_attempt_timeout_minutes: "${{ inputs.reproduction_attempt_timeout_minutes }}"
@@ -228,7 +200,7 @@ tasks:
       run_started_at: ${{ tasks.fetch.outputs.run_started_at }}
       source_repo: ${{ inputs.source_repo }}
       gh_token: ${{ inputs.?gh_token }}
-      enclave_name: '${{ "ci-investigate-" + tasks.fetch.outputs.run_id + "-" + string(tasks.worklist.outputs.items[matrix.idx].cluster_index) }}'
+      enclave_name: '${{ "ci-investigate-" + tasks.fetch.outputs.run_id + "-" + string(tasks.state_check.outputs.items[matrix.idx].cluster_index) }}'
     tasks:
       investigate:
         uses: io.ethpandaops/assertoor-ci-cluster-investigate@1.0.0
@@ -236,9 +208,8 @@ tasks:
           cluster_idx: ${{ inputs.cluster_idx }}
           cluster: ${{ inputs.cluster }}
           cheap_fingerprint: ${{ inputs.cheap_fingerprint }}
-          human_label: ${{ inputs.human_label }}
+          cluster_label: ${{ inputs.cluster_label }}
           status: ${{ inputs.status }}
-          work_action: ${{ inputs.work_item.action }}
           representative: ${{ inputs.representative }}
           skip_reproduction: ${{ inputs.skip_reproduction }}
           max_bug_hunt_rounds: ${{ inputs.max_bug_hunt_rounds }}
@@ -285,7 +256,7 @@ tasks:
                     type: string
               cheap_fingerprint:
                 type: string
-              human_label:
+              cluster_label:
                 type: string
               status:
                 type: object
@@ -296,26 +267,10 @@ tasks:
                     type: number
                   issue_url:
                     type: string
-                  issue_state:
-                    type: string
+                  schema_version:
+                    type: number
                   classification:
                     type: string
-                  first_seen_run:
-                    type: string
-                  last_seen_run:
-                    type: string
-                  last_seen_at:
-                    type: string
-                  last_investigated_run:
-                    type: string
-                  last_investigated_at:
-                    type: string
-                  title_locked:
-                    type: boolean
-              work_action:
-                type: string
-              enclave_name:
-                type: string
               representative:
                 type: object
                 properties:
@@ -406,6 +361,21 @@ tasks:
                           type: string
                         source:
                           type: string
+                  package_runtime_identity:
+                    type: object
+                    properties:
+                      package_ref:
+                        type: string
+                      package_started_at:
+                        type: string
+                      source_repo:
+                        type: string
+                      source_revision:
+                        type: string
+                      source:
+                        type: string
+                      evidence:
+                        type: string
                   original_artifact_evidence:
                     type: array
                     items:
@@ -426,7 +396,7 @@ tasks:
                         type: boolean
                       has_enclave_dump:
                         type: boolean
-                      has_claude_output:
+                      has_ai_summary_artifact:
                         type: boolean
                       has_kurtosis_params:
                         type: boolean
@@ -481,10 +451,22 @@ tasks:
                     type: boolean
                   test_result:
                     type: string
-                  observed_signal:
-                    type: string
                   summary:
                     type: string
+                  launch_summary:
+                    type: string
+                  runtime_fidelity_summary:
+                    type: string
+                  package_ref_used:
+                    type: string
+                  pinned_images:
+                    type: array
+                    items:
+                      type: string
+                  unpinned_images:
+                    type: array
+                    items:
+                      type: string
                   evidence:
                     type: array
                     items:
@@ -495,8 +477,6 @@ tasks:
                     type: number
                   attempts_converged:
                     type: boolean
-                  attempt_log:
-                    type: string
               regression:
                 type: object
                 properties:
@@ -542,6 +522,10 @@ tasks:
                           type: string
                         current_revision:
                           type: string
+                        previous_version:
+                          type: string
+                        current_version:
+                          type: string
                         changed:
                           type: boolean
                         evidence:
@@ -561,6 +545,10 @@ tasks:
                           type: string
                         current_revision:
                           type: string
+                        previous_version:
+                          type: string
+                        current_version:
+                          type: string
                         evidence:
                           type: string
                   unchanged_components:
@@ -573,6 +561,18 @@ tasks:
                         service_name:
                           type: string
                         role:
+                          type: string
+                        previous_digest:
+                          type: string
+                        current_digest:
+                          type: string
+                        previous_revision:
+                          type: string
+                        current_revision:
+                          type: string
+                        previous_version:
+                          type: string
+                        current_version:
                           type: string
                         evidence:
                           type: string
@@ -691,8 +691,6 @@ tasks:
                     type: boolean
                   resolution_caveat:
                     type: string
-                  workdir:
-                    type: string
                   cloned:
                     type: boolean
                   alternate_targets:
@@ -707,6 +705,10 @@ tasks:
                         repo_url:
                           type: string
                         service_name:
+                          type: string
+                        commit_sha:
+                          type: string
+                        image_ref:
                           type: string
                         reason:
                           type: string
@@ -762,7 +764,57 @@ tasks:
                           type: boolean
                         reason:
                           type: string
+                  alternate_probe_summary:
+                    type: string
+                  alternate_probe_target:
+                    type: object
+                    properties:
+                      target_kind:
+                        type: string
+                      component:
+                        type: string
+                      repo_url:
+                        type: string
+                      service_name:
+                        type: string
+                      commit_sha:
+                        type: string
+                      image_ref:
+                        type: string
+                      reason:
+                        type: string
+                  alternate_code_refs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        label:
+                          type: string
+                        repo_url:
+                          type: string
+                        commit_sha:
+                          type: string
+                        path:
+                          type: string
+                        start_line:
+                          type: number
+                        end_line:
+                          type: number
+                        permalink:
+                          type: string
+                        stable:
+                          type: boolean
+                        reason:
+                          type: string
+                  alternate_probe_confidence:
+                    type: number
                   confidence:
+                    type: number
+                  source_surface_confidence:
+                    type: number
+                  regression_pin_confidence:
+                    type: number
+                  fix_target_confidence:
                     type: number
                   confidence_note:
                     type: string
@@ -785,108 +837,31 @@ tasks:
                     type: string
                   verdict:
                     type: string
-            required: [cluster_idx, cheap_fingerprint, human_label]
-  render_pending_cluster_reports:
-    needs: [fetch, cluster, state_check]
-    if: "${{ has(tasks.state_check.outputs.statuses) && size(tasks.state_check.outputs.statuses) > 0 }}"
-    uses: io.ethpandaops/assertoor-ci-issue-render@1.0.0
-    inputs:
-      mode: pending
-      clusters: ${{ tasks.cluster.outputs.clusters }}
-      cluster_fingerprints: ${{ tasks.cluster.outputs.cluster_fingerprints }}
-      cluster_human_labels: ${{ tasks.cluster.outputs.cluster_human_labels }}
-      statuses: ${{ tasks.state_check.outputs.statuses }}
-      existing_issue_bodies: ${{ tasks.state_check.outputs.existing_issue_bodies }}
-      target_repo: "${{ inputs.issue_repo != '' ? inputs.issue_repo : inputs.source_repo }}"
-      run_id: ${{ tasks.fetch.outputs.run_id }}
-      run_url: ${{ tasks.fetch.outputs.run_url }}
-      run_started_at: ${{ tasks.fetch.outputs.run_started_at }}
-      schema_version: ${{ inputs.schema_version }}
-    outputs:
-      cluster_reports: cluster_reports
-      summary: summary
-  publish_pending:
-    needs: [fetch, render_pending_cluster_reports]
-    if: "${{ has(tasks.render_pending_cluster_reports.outputs.cluster_reports) && size(tasks.render_pending_cluster_reports.outputs.cluster_reports) > 0 }}"
-    uses: io.ethpandaops/ci-investigate-issue-upsert-by-fingerprint@1.0.0
-    inputs:
-      target_repo: "${{ inputs.issue_repo != '' ? inputs.issue_repo : inputs.source_repo }}"
-      gh_token: ${{ inputs.?gh_token }}
-      run_id: ${{ tasks.fetch.outputs.run_id }}
-      run_url: ${{ tasks.fetch.outputs.run_url }}
-      run_started_at: ${{ tasks.fetch.outputs.run_started_at }}
-      cluster_reports: ${{ tasks.render_pending_cluster_reports.outputs.cluster_reports }}
-      schema_version: ${{ inputs.schema_version }}
-    outputs:
-      results: results
-      summary: summary
-  render_recurrence_cluster_reports:
-    needs: [fetch, cluster, state_check, worklist]
-    if: "${{ has(tasks.worklist.outputs.recurrence_items) && size(tasks.worklist.outputs.recurrence_items) > 0 }}"
-    uses: io.ethpandaops/assertoor-ci-issue-render@1.0.0
-    inputs:
-      mode: recurrence
-      clusters: ${{ tasks.cluster.outputs.clusters }}
-      cluster_fingerprints: ${{ tasks.cluster.outputs.cluster_fingerprints }}
-      cluster_human_labels: ${{ tasks.cluster.outputs.cluster_human_labels }}
-      statuses: ${{ tasks.state_check.outputs.statuses }}
-      existing_issue_bodies: ${{ tasks.state_check.outputs.existing_issue_bodies }}
-      target_repo: "${{ inputs.issue_repo != '' ? inputs.issue_repo : inputs.source_repo }}"
-      run_id: ${{ tasks.fetch.outputs.run_id }}
-      run_url: ${{ tasks.fetch.outputs.run_url }}
-      run_started_at: ${{ tasks.fetch.outputs.run_started_at }}
-      schema_version: ${{ inputs.schema_version }}
-    outputs:
-      cluster_reports: cluster_reports
-      summary: summary
-  publish_recurrence:
-    needs: [fetch, render_recurrence_cluster_reports]
-    if: "${{ has(tasks.render_recurrence_cluster_reports.outputs.cluster_reports) && size(tasks.render_recurrence_cluster_reports.outputs.cluster_reports) > 0 }}"
-    uses: io.ethpandaops/ci-investigate-issue-upsert-by-fingerprint@1.0.0
-    inputs:
-      target_repo: "${{ inputs.issue_repo != '' ? inputs.issue_repo : inputs.source_repo }}"
-      gh_token: ${{ inputs.?gh_token }}
-      run_id: ${{ tasks.fetch.outputs.run_id }}
-      run_url: ${{ tasks.fetch.outputs.run_url }}
-      run_started_at: ${{ tasks.fetch.outputs.run_started_at }}
-      cluster_reports: ${{ tasks.render_recurrence_cluster_reports.outputs.cluster_reports }}
-      schema_version: ${{ inputs.schema_version }}
-    outputs:
-      results: results
-      summary: summary
+            required: [cluster_idx, cheap_fingerprint, cluster_label]
   render_cluster_reports:
-    needs: [fetch, cluster, investigate_each, state_check]
-    if: "${{ has(tasks.investigate_each.outputs.raw_findings) && size(tasks.investigate_each.outputs.raw_findings) > 0 }}"
+    needs: [fetch, investigate_each]
     uses: io.ethpandaops/assertoor-ci-issue-render@1.0.0
     inputs:
-      mode: final
-      raw_findings: ${{ tasks.investigate_each.outputs.raw_findings }}
-      existing_issue_bodies: ${{ tasks.state_check.outputs.existing_issue_bodies }}
+      raw_findings: "${{ has(tasks.investigate_each.outputs.raw_findings) ? tasks.investigate_each.outputs.raw_findings : [] }}"
       target_repo: "${{ inputs.issue_repo != '' ? inputs.issue_repo : inputs.source_repo }}"
       run_id: ${{ tasks.fetch.outputs.run_id }}
       run_url: ${{ tasks.fetch.outputs.run_url }}
       run_started_at: ${{ tasks.fetch.outputs.run_started_at }}
-      schema_version: ${{ inputs.schema_version }}
     outputs:
       cluster_reports: cluster_reports
       summary: summary
   publish:
     needs: [fetch, render_cluster_reports]
-    if: "${{ has(tasks.render_cluster_reports.outputs.cluster_reports) && size(tasks.render_cluster_reports.outputs.cluster_reports) > 0 }}"
-    uses: io.ethpandaops/ci-investigate-issue-upsert-by-fingerprint@1.0.0
+    uses: io.ethpandaops/ci-investigate-issue-publish-by-fingerprint@1.0.0
     inputs:
       target_repo: "${{ inputs.issue_repo != '' ? inputs.issue_repo : inputs.source_repo }}"
       gh_token: ${{ inputs.?gh_token }}
-      run_id: ${{ tasks.fetch.outputs.run_id }}
-      run_url: ${{ tasks.fetch.outputs.run_url }}
-      run_started_at: ${{ tasks.fetch.outputs.run_started_at }}
-      cluster_reports: ${{ tasks.render_cluster_reports.outputs.cluster_reports }}
-      schema_version: ${{ inputs.schema_version }}
+      cluster_reports: "${{ has(tasks.render_cluster_reports.outputs.cluster_reports) ? tasks.render_cluster_reports.outputs.cluster_reports : [] }}"
     outputs:
       results: results
       summary: summary
   report_run:
-    needs: [fetch, adapt, cluster, state_check, worklist, publish_pending, render_recurrence_cluster_reports, publish_recurrence, investigate_each, render_cluster_reports, publish]
+    needs: [fetch, adapt, cluster, state_check, investigate_each, render_cluster_reports, publish]
     if: "${{ tasks.fetch.outputs.no_failures != true }}"
     uses: io.ethpandaops/assertoor-ci-run-report@1.0.0
     inputs:
@@ -894,16 +869,6 @@ tasks:
       issue_repo: "${{ inputs.issue_repo != '' ? inputs.issue_repo : inputs.source_repo }}"
       workflow_ref: ${{ inputs.workflow_ref }}
       requested_run_id: ${{ inputs.run_id }}
-      schema_version: ${{ inputs.schema_version }}
-      skip_reproduction: ${{ inputs.skip_reproduction }}
-      max_bug_hunt_rounds: ${{ inputs.max_bug_hunt_rounds }}
-      reproduction_attempt_timeout_minutes: ${{ inputs.reproduction_attempt_timeout_minutes }}
-      reproduction_attempts: ${{ inputs.reproduction_attempts }}
-      narrow_to_failing_test: ${{ inputs.narrow_to_failing_test }}
-      enable_source_dive: ${{ inputs.enable_source_dive }}
-      discord_min_confidence: ${{ inputs.discord_min_confidence }}
-      staleness_days: ${{ inputs.staleness_days }}
-      closed_context_days: ${{ inputs.closed_context_days }}
       run_id: ${{ tasks.fetch.outputs.run_id }}
       run_url: ${{ tasks.fetch.outputs.run_url }}
       run_started_at: ${{ tasks.fetch.outputs.run_started_at }}
@@ -915,26 +880,22 @@ tasks:
       clusters_count: "${{ has(tasks.cluster.outputs.clusters) ? size(tasks.cluster.outputs.clusters) : 0 }}"
       clusters: "${{ has(tasks.cluster.outputs.clusters) ? tasks.cluster.outputs.clusters : [] }}"
       state_check_statuses: "${{ has(tasks.state_check.outputs.statuses) ? tasks.state_check.outputs.statuses : [] }}"
-      worklist_items: "${{ has(tasks.worklist.outputs.items) ? tasks.worklist.outputs.items : [] }}"
-      recurrence_worklist_items: "${{ has(tasks.worklist.outputs.recurrence_items) ? tasks.worklist.outputs.recurrence_items : [] }}"
-      skipped_worklist_items: "${{ has(tasks.worklist.outputs.skipped_items) ? tasks.worklist.outputs.skipped_items : [] }}"
+      investigation_items: "${{ has(tasks.state_check.outputs.items) ? tasks.state_check.outputs.items : [] }}"
+      skipped_items: "${{ has(tasks.state_check.outputs.skipped_items) ? tasks.state_check.outputs.skipped_items : [] }}"
       raw_findings: "${{ has(tasks.investigate_each.outputs.raw_findings) ? tasks.investigate_each.outputs.raw_findings : [] }}"
       cluster_reports: "${{ has(tasks.render_cluster_reports.outputs.cluster_reports) ? tasks.render_cluster_reports.outputs.cluster_reports : [] }}"
-      recurrence_cluster_reports: "${{ has(tasks.render_recurrence_cluster_reports.outputs.cluster_reports) ? tasks.render_recurrence_cluster_reports.outputs.cluster_reports : [] }}"
-      pending_publish_results: "${{ has(tasks.publish_pending.outputs.results) ? tasks.publish_pending.outputs.results : [] }}"
-      recurrence_publish_results: "${{ has(tasks.publish_recurrence.outputs.results) ? tasks.publish_recurrence.outputs.results : [] }}"
       publish_results: "${{ has(tasks.publish.outputs.results) ? tasks.publish.outputs.results : [] }}"
     outputs:
       report: report
       summary: summary
   notify_discord:
-    needs: [fetch, render_cluster_reports, publish, report_run]
+    needs: [fetch, render_cluster_reports, publish]
     if: "${{ has(inputs.discord_webhook_url) && has(tasks.publish.outputs.results) && size(tasks.publish.outputs.results) > 0 }}"
     uses: io.ethpandaops/discord-webhook-notify@1.0.0
     inputs:
       webhook_url: ${{ inputs.discord_webhook_url }}
       title: "Assertoor CI triage issues published"
-      summary: ${{ tasks.report_run.outputs.summary }}
+      summary: "${{ has(tasks.render_cluster_reports.outputs.summary) ? tasks.render_cluster_reports.outputs.summary : '' }}"
       source_repo: ${{ inputs.source_repo }}
       issue_repo: "${{ inputs.issue_repo != '' ? inputs.issue_repo : inputs.source_repo }}"
       workflow_ref: ${{ inputs.workflow_ref }}
@@ -957,16 +918,6 @@ tasks:
       issue_repo: "${{ inputs.issue_repo != '' ? inputs.issue_repo : inputs.source_repo }}"
       workflow_ref: ${{ inputs.workflow_ref }}
       requested_run_id: ${{ inputs.run_id }}
-      schema_version: ${{ inputs.schema_version }}
-      skip_reproduction: ${{ inputs.skip_reproduction }}
-      max_bug_hunt_rounds: ${{ inputs.max_bug_hunt_rounds }}
-      reproduction_attempt_timeout_minutes: ${{ inputs.reproduction_attempt_timeout_minutes }}
-      reproduction_attempts: ${{ inputs.reproduction_attempts }}
-      narrow_to_failing_test: ${{ inputs.narrow_to_failing_test }}
-      enable_source_dive: ${{ inputs.enable_source_dive }}
-      discord_min_confidence: ${{ inputs.discord_min_confidence }}
-      staleness_days: ${{ inputs.staleness_days }}
-      closed_context_days: ${{ inputs.closed_context_days }}
       run_id: ${{ tasks.fetch.outputs.run_id }}
       run_url: ${{ tasks.fetch.outputs.run_url }}
       run_started_at: ${{ tasks.fetch.outputs.run_started_at }}
@@ -978,14 +929,10 @@ tasks:
       clusters_count: 0
       clusters: []
       state_check_statuses: []
-      worklist_items: []
-      recurrence_worklist_items: []
-      skipped_worklist_items: []
+      investigation_items: []
+      skipped_items: []
       raw_findings: []
       cluster_reports: []
-      recurrence_cluster_reports: []
-      pending_publish_results: []
-      recurrence_publish_results: []
       publish_results: []
     outputs:
       report: report
@@ -1000,18 +947,13 @@ outputs:
   state_check_statuses: "${{ has(tasks.state_check.outputs.statuses) ? tasks.state_check.outputs.statuses : [] }}"
   raw_findings: "${{ has(tasks.investigate_each.outputs.raw_findings) ? tasks.investigate_each.outputs.raw_findings : [] }}"
   cluster_reports: "${{ has(tasks.render_cluster_reports.outputs.cluster_reports) ? tasks.render_cluster_reports.outputs.cluster_reports : [] }}"
-  recurrence_cluster_reports: "${{ has(tasks.render_recurrence_cluster_reports.outputs.cluster_reports) ? tasks.render_recurrence_cluster_reports.outputs.cluster_reports : [] }}"
   publish_results: "${{ has(tasks.publish.outputs.results) ? tasks.publish.outputs.results : [] }}"
   fetch_summary: ${{ tasks.fetch.outputs.summary }}
   cluster_summary: "${{ has(tasks.cluster.outputs.summary) ? tasks.cluster.outputs.summary : '' }}"
   state_check_summary: "${{ has(tasks.state_check.outputs.summary) ? tasks.state_check.outputs.summary : '' }}"
   publish_summary: "${{ has(tasks.publish.outputs.summary) ? tasks.publish.outputs.summary : '' }}"
-  recurrence_publish_summary: "${{ has(tasks.publish_recurrence.outputs.summary) ? tasks.publish_recurrence.outputs.summary : '' }}"
-  worklist_summary: "${{ has(tasks.worklist.outputs.summary) ? tasks.worklist.outputs.summary : '' }}"
-  skipped_worklist_items: "${{ has(tasks.worklist.outputs.skipped_items) ? tasks.worklist.outputs.skipped_items : [] }}"
-  recurrence_worklist_items: "${{ has(tasks.worklist.outputs.recurrence_items) ? tasks.worklist.outputs.recurrence_items : [] }}"
-  pending_publish_results: "${{ has(tasks.publish_pending.outputs.results) ? tasks.publish_pending.outputs.results : [] }}"
-  recurrence_publish_results: "${{ has(tasks.publish_recurrence.outputs.results) ? tasks.publish_recurrence.outputs.results : [] }}"
+  investigation_items: "${{ has(tasks.state_check.outputs.items) ? tasks.state_check.outputs.items : [] }}"
+  skipped_items: "${{ has(tasks.state_check.outputs.skipped_items) ? tasks.state_check.outputs.skipped_items : [] }}"
   discord_notification_sent: "${{ has(tasks.notify_discord.outputs.sent) ? tasks.notify_discord.outputs.sent : false }}"
   discord_notification_issue_count: "${{ has(tasks.notify_discord.outputs.issue_count) ? tasks.notify_discord.outputs.issue_count : 0 }}"
   discord_notification_omitted_issue_count: "${{ has(tasks.notify_discord.outputs.omitted_issue_count) ? tasks.notify_discord.outputs.omitted_issue_count : 0 }}"

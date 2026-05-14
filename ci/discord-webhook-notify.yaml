@@ -7,7 +7,7 @@ authors: [savid]
 homepage: https://github.com/ethpandaops/wagie-templates
 repository: https://github.com/ethpandaops/wagie-templates
 description: >-
-  Use when a CI triage workflow has finished durable issue publication and should send one compact Discord incoming-webhook notification. Posts a single best-effort rich embed from filtered final issue results; callers should only invoke it after the final publish step, not early reservation writes.
+  Use when a CI triage workflow has finished durable issue publication and should send one compact Discord incoming-webhook notification. Posts a single best-effort rich embed from filtered final issue results; callers should only invoke it after the final publish step.
 tags: ["ci", "discord", "webhook", "notification", "triage"]
 defaults:
   retryable: true
@@ -48,7 +48,7 @@ inputs:
   cluster_reports:
     type: array
     default: []
-    description: Caller-rendered cluster reports used to recover human labels, classifications, and confidence for issue links.
+    description: Caller-rendered cluster reports used to recover cluster labels, classifications, and confidence for issue links.
     schema:
       type: array
       items:
@@ -56,36 +56,30 @@ inputs:
         properties:
           cheap_fingerprint:
             type: string
-          human_label:
+          cluster_label:
+            type: string
+          issue_title:
             type: string
           classification:
             type: string
-          classification_confidence:
-            type: number
-          owner_confidence:
-            type: number
-          mechanism_confidence:
-            type: number
-          source_identity_confidence:
-            type: number
-          regression_pin_confidence:
-            type: number
           diagnosis_confidence:
             type: number
           notification_confidence:
             type: number
-          state_check_status:
+          confidence_bucket:
             type: string
   publish_results:
     type: array
     default: []
-    description: Final issue upsert results. Pending/reservation publish results should not be passed here.
+    description: Final issue publish results.
     schema:
       type: array
       items:
         type: object
         properties:
           cheap_fingerprint:
+            type: string
+          issue_title:
             type: string
           issue_number:
             type: number
@@ -93,10 +87,6 @@ inputs:
             type: string
           action:
             type: string
-          deduplicated_issue_numbers:
-            type: array
-            items:
-              type: number
           note:
             type: string
   username:
@@ -109,7 +99,7 @@ inputs:
     description: Maximum issue links to include before truncating for Discord embed limits.
   min_confidence:
     type: number
-    default: 85
+    default: 65
     description: Minimum notification confidence required for an issue to be included. Set to 0 or lower to disable confidence gating for known-classification issues.
 tasks:
   send:
@@ -126,11 +116,11 @@ tasks:
 
       Notification policy:
       - Send at most one Discord message.
-      - Use only final `publish_results`, not pending/reservation results.
-      - Consider actions `created`, `updated`, and `deduplicated` as touched issues. Ignore `skipped`.
+      - Use final `publish_results` only.
+      - Consider only action `created` as a created issue eligible for notification. Ignore `skipped`.
       - Apply the confidence gate per issue, not per run. Match each publish result to its cluster report by `cheap_fingerprint`.
-      - Gate on `cluster_report.notification_confidence`. Treat missing notification confidence as 0. Include a touched issue only when `cluster_report.classification != "unknown"` AND (`min_confidence <= 0` OR `notification_confidence >= min_confidence`).
-      - If there are no eligible issues, do not call Discord; return `sent=false`, `issue_count=0`, `omitted_issue_count=<number of touched issues omitted by the gate>`, and a short explanation.
+      - Gate on `cluster_report.notification_confidence`. Treat missing notification confidence as 0. Include a created issue only when `cluster_report.classification != "unknown"` AND (`min_confidence <= 0` OR `notification_confidence >= min_confidence`).
+      - If there are no eligible issues, do not call Discord; return `sent=false`, `issue_count=0`, `omitted_issue_count=<number of created issues omitted by the gate>`, and a short explanation.
       - Keep the original order of `publish_results`.
 
       Payload requirements:
@@ -141,25 +131,25 @@ tasks:
       - Respect Discord limits: content <= 2000 chars, at most 10 embeds per message, at most 25 fields per embed, title <= 256 chars, description <= 4096 chars, each field value <= 1024 chars, and the combined embed text <= 6000 chars. Trim conservatively before sending.
 
       Suggested embed shape:
-      - `title`: input title, adjusted with the touched issue count if useful.
+      - `title`: input title, adjusted with the created issue count if useful.
       - `description`: a notification-safe summary built AFTER confidence filtering, trimmed to about 1500 characters.
       - metadata fields: Run, Workflow, Repos.
-      - issue fields: one or more fields named `Issues` / `Issues cont.` containing markdown bullets like `- [#12](https://...) updated - Human label (single-client notify 91%, diagnosis 58%, pin 40%)`.
+      - issue fields: one or more fields named `Issues` / `Issues cont.` containing markdown bullets like `- [#12](https://...) created - Final issue title (single-client, High confidence)`.
       - `footer.text`: `wagie ci-investigate`.
 
-      Build issue labels by matching `publish_results[].cheap_fingerprint` to `cluster_reports[].human_label`. Fall back to the fingerprint or issue number when no label is available. Include classification and rounded notification confidence when present; include diagnosis and regression-pin confidence when they materially differ from the notification score. Include deduplicated issue numbers in the bullet when present. Use those eligible issue bullets as the source of truth for the Discord description and issue fields.
+      Build issue display bullets by matching `publish_results[].cheap_fingerprint` to `cluster_reports[].issue_title`. Fall back to `cluster_label`, then the fingerprint or issue number when no title is available. Include classification and `cluster_report.confidence_bucket` when present; otherwise derive the bucket from `notification_confidence`: `High` >= 80, `Medium` >= 60, `Low` > 0, `Unknown` otherwise. Do not include numeric confidence values in Discord. Use those eligible issue bullets as the source of truth for the Discord description and issue fields.
 
       Treat the input `summary` as optional run-level context, not as an already-safe Discord body. If it contains per-issue bullets, discard those bullets and regenerate them from the eligible issues after applying the confidence gate. It is acceptable to keep only the first headline/count line from `summary` when it does not mention omitted issues individually. Never include details for issues that failed the confidence gate or have `classification=unknown`.
 
-      If any touched issues are omitted by the confidence gate, add one concise metadata field or description suffix such as `Omitted 2 issue(s) below 85% notification confidence.`
+      If any created issues are omitted by the confidence gate, add one concise metadata field or description suffix such as `Omitted 2 issue(s) below the notification confidence gate.`
 
       Use `python3` with `urllib.request` or `curl` with a JSON payload. If Discord returns HTTP 429, parse `retry_after` when available, sleep at most 5 seconds, then retry once. Retry 5xx responses once after a short delay. Treat 2xx as sent.
 
       Return:
       - `sent`: true only when Discord accepted the message.
       - `issue_count`: number of eligible issue results included in the notification after the confidence gate.
-      - `omitted_issue_count`: number of touched issue results omitted by unknown classification or confidence gate. Do not count skipped publish actions as touched.
-      - `summary`: short delivery result, e.g. `Sent Discord notification for 2 high-confidence issues; omitted 1 below gate.` or `Discord notification skipped: no final issues met notification confidence gate.`
+      - `omitted_issue_count`: number of created issue results omitted by unknown classification or confidence gate. Do not count skipped publish actions.
+      - `summary`: short delivery result, e.g. `Sent Discord notification for 2 eligible issues; omitted 1 below gate.` or `Discord notification skipped: no final issues met notification confidence gate.`
     inputs:
       webhook_url: ${{ inputs.webhook_url }}
       title: ${{ inputs.title }}
@@ -185,10 +175,10 @@ tasks:
           description: True when Discord accepted the webhook message.
         issue_count:
           type: number
-          description: Number of final touched issue results included after confidence gating.
+          description: Number of created issue results included after confidence gating.
         omitted_issue_count:
           type: number
-          description: Number of final touched issue results omitted by unknown classification or confidence gate. Skipped publish actions are not counted as touched.
+          description: Number of created issue results omitted by unknown classification or confidence gate. Skipped publish actions are not counted.
         summary:
           type: string
           description: Short delivery result.
